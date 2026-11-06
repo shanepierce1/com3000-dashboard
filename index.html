@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>COM3000 Dashboard</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: summary strip, then one panel per site (problems first), then resets per month. */
+:root {
+  --bg: #f3f5f7; --panel: #ffffff; --line: #dde2e8; --fg: #1b2530; --muted: #5d6b7a;
+  --accent: #1f5f8b;
+  --ok: #1e7a46; --ok-bg: #e3f3e9; --warn: #9a5b00; --warn-bg: #fdf0d9;
+  --bad: #b3261e; --bad-bg: #fbe4e2; --idle: #5d6b7a; --idle-bg: #e8ecf0; --info: #1f5f8b; --info-bg: #e2eef7;
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f151b; --panel: #172029; --line: #26323e; --fg: #e4eaf0; --muted: #93a2b2;
+    --accent: #6fb3e0;
+    --ok: #6fd39b; --ok-bg: #143323; --warn: #f2b85c; --warn-bg: #3a2a10; --bad: #ff8a80; --bad-bg: #3d1916;
+    --idle: #93a2b2; --idle-bg: #222c36; --info: #6fb3e0; --info-bg: #142a3a;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--fg); font: 15px/1.45 var(--sans);
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 32px max(16px, env(safe-area-inset-left));
+}
+.wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 20px; }
+.wrap > * { min-width: 0; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.meta { color: var(--muted); font-size: 13px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+button {
+  font: 500 13px var(--sans); color: var(--accent); background: transparent; border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 12px; cursor: pointer;
+}
+button:hover { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.summary { display: flex; flex-wrap: wrap; gap: 8px; }
+.sum { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font-size: 14px; }
+.sum b { font: 600 20px var(--mono); font-variant-numeric: tabular-nums; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+.sites { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; align-items: start; }
+.site { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; align-content: start; min-width: 0; }
+.site-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px 8px; border-top: 4px solid var(--c); }
+.site-name { font-size: 17px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; color: var(--c); background: var(--cb); white-space: nowrap; }
+.site-body { padding: 0 14px 12px; display: grid; gap: 10px; min-width: 0; }
+.cards { display: flex; flex-wrap: wrap; gap: 6px; }
+.card { font: 12px var(--mono); border: 1px solid var(--line); border-radius: 6px; padding: 3px 7px; display: flex; gap: 6px; align-items: center; }
+.card.down { border-color: var(--bad); color: var(--bad); background: var(--bad-bg); }
+.card.some { border-color: var(--warn); color: var(--warn); }
+.out { font-size: 13px; color: var(--warn); }
+.out.bad { color: var(--bad); }
+.out ul { margin: 4px 0 0; padding-left: 18px; font-family: var(--mono); font-size: 12px; color: var(--fg); }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; font-size: 13px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; font-variant-numeric: tabular-nums; min-width: 0; overflow-wrap: anywhere; }
+.note { font-size: 13px; color: var(--muted); }
+.empty { background: var(--panel); border: 1px dashed var(--line); border-radius: 10px; padding: 20px; color: var(--muted); }
+.table-wrap { overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th { font-weight: 600; color: var(--muted); font-size: 12px; }
+tr:last-child td { border-bottom: 0; }
+td.n { font-family: var(--mono); }
+.zero { color: var(--muted); }
+.legend { font-size: 12px; color: var(--muted); margin-top: 8px; }
+.err { color: var(--bad); font-size: 13px; }
+@media (prefers-reduced-motion: no-preference) { .site { transition: border-color .2s; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>COM3000 Dashboard</h1>
+    <div class="meta"><span id="updated">Loading…</span><button id="refresh" type="button">Refresh</button></div>
+  </header>
+  <div class="summary" id="summary"></div>
+  <div class="err" id="error" hidden></div>
+  <section>
+    <h2>Sites</h2>
+    <div class="sites" id="sites"></div>
+  </section>
+  <section>
+    <h2>Resets per month</h2>
+    <div class="table-wrap"><table id="resets"></table></div>
+    <div class="legend">Card = one card restarted. Whole = the whole COM3000 restarted. "auto" = done by the monitor, "hand" = from the Reset panel.</div>
+  </section>
+</div>
+<script>
+// ---- Settings ----------------------------------------------------------
+// The ntfy topic the site PCs send status reports to: your alerts topic + "-status".
+const TOPIC = 'com3000-alerts-x7q4m2-status';
+const SERVER = 'https://ntfy.sh';
+const STALE_MIN = 35;   // a site that hasn't reported this long shows "Not reporting"
+// ------------------------------------------------------------------------
+
+const STORE_KEY = 'com3000-dashboard-sites';
+const $ = id => document.getElementById(id);
+
+function loadSaved() { try { return JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch (e) { return {}; } }
+function save(sites) { try { localStorage.setItem(STORE_KEY, JSON.stringify(sites)); } catch (e) {} }
+
+function ago(t) {
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return m + ' min ago';
+  const h = Math.floor(m / 60);
+  if (h < 48) return h + ' h ' + (m % 60) + ' min ago';
+  return Math.floor(h / 24) + ' days ago';
+}
+function clock(t) { return new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+
+// What state is a site in? Returns [label, color var, bg var, rank (lower = worse)]
+function siteState(r) {
+  const age = (Date.now() - Date.parse(r.t)) / 60000;
+  if (age > STALE_MIN) return ['Not reporting', '--idle', '--idle-bg', 0];
+  if (r.page === 'down') return ['COM3000 unreachable', '--bad', '--bad-bg', 1];
+  if (r.page === 'paused') return ['Alerts paused', '--info', '--info-bg', 4];
+  const down = (r.cards || []).filter(c => !c.up).length;
+  if (down) return [down === 1 ? 'Card offline' : down + ' cards offline', '--bad', '--bad-bg', 1];
+  if (r.outN) return [r.outN === 1 ? '1 channel out' : r.outN + ' channels out', '--warn', '--warn-bg', 2];
+  return ['OK', '--ok', '--ok-bg', 5];
+}
+
+function monthKey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+function monthName(k) { const [y, m] = k.split('-'); return new Date(+y, +m - 1, 1).toLocaleString([], { month: 'short', year: 'numeric' }); }
+function resetsIn(r, k) { const x = (r.resets || {})[k] || {}; return { card: (x.ca || 0) + (x.ch || 0), whole: (x.wa || 0) + (x.wh || 0), x }; }
+
+function renderSite(r) {
+  const [label, c, cb] = siteState(r);
+  const stale = label === 'Not reporting';
+  const cards = (r.cards || []).map(cd => {
+    const cls = !cd.up ? 'down' : (cd.out ? 'some' : '');
+    const txt = !cd.up ? 'offline' : (cd.out ? cd.out + ' of ' + cd.n + ' out' : cd.n + ' ch OK');
+    return `<span class="card ${cls}" title="${esc(cd.ip)}">Slot ${esc(cd.s)} · ${txt}</span>`;
+  }).join('');
+  let out = '';
+  if (!stale && r.outN) {
+    const more = r.outN > (r.out || []).length ? `<li>…and ${r.outN - r.out.length} more</li>` : '';
+    out = `<div class="out">Channels out:<ul>${(r.out || []).map(o => `<li>${esc(o)}</li>`).join('')}${more}</ul></div>`;
+  }
+  const thisMonth = resetsIn(r, monthKey(new Date()));
+  const resetTxt = thisMonth.card || thisMonth.whole
+    ? `${thisMonth.card} card, ${thisMonth.whole} whole COM3000` : 'none';
+  const last = (r.recent || []).slice(-1)[0];
+  const lastTxt = last ? `${last.k === 'whole' ? 'Whole COM3000' : 'Card slot ' + esc(last.s)} (${last.h === 'auto' ? 'automatic' : 'by hand'}), ${clock(Date.parse(last.t))}` : '—';
+  let extra = '';
+  if (stale) extra = `<div class="note">This site's PC hasn't sent a report since ${clock(Date.parse(r.t))}. It may be off, frozen or offline, so it can't send alerts either.</div>`;
+  else if (r.page === 'down') extra = `<div class="note">${esc(r.err || 'No COM3000 card is answering.')}</div>`;
+  else if (r.page === 'paused') extra = `<div class="note">Alerts paused until ${clock(Date.parse(r.paused))}.</div>`;
+  else if (r.via) extra = `<div class="note">Main card not answering. Reading the COM3000 from card ${esc(r.via)}.</div>`;
+  return `<article class="site" style="--c:var(${c});--cb:var(${cb})">
+    <div class="site-top"><span class="site-name">${esc(r.site)}</span><span class="pill">${label}</span></div>
+    <div class="site-body">
+      ${extra}
+      ${!stale && cards ? `<div class="cards">${cards}</div>` : ''}
+      ${out}
+      <dl class="facts">
+        <dt>Last report</dt><dd>${ago(Date.parse(r.t))}</dd>
+        ${r.watched ? `<dt>Watching</dt><dd>${r.watched} channels</dd>` : ''}
+        <dt>Resets this month</dt><dd>${resetTxt}</dd>
+        <dt>Last reset</dt><dd>${lastTxt}</dd>
+        <dt>Last backup</dt><dd>${r.backup ? esc(r.backup) : '—'}</dd>
+      </dl>
+    </div>
+  </article>`;
+}
+
+function renderResets(list) {
+  const months = [];
+  const d = new Date(); d.setDate(1);
+  for (let i = 0; i < 6; i++) { months.push(monthKey(d)); d.setMonth(d.getMonth() - 1); }
+  if (!list.length) { $('resets').innerHTML = '<tr><td class="zero">No reports yet.</td></tr>'; return; }
+  const head = '<tr><th>Month</th>' + list.map(r => `<th>${esc(r.site)}</th>`).join('') + '<th>All sites</th></tr>';
+  const rows = months.map(k => {
+    let tc = 0, tw = 0;
+    const cells = list.map(r => {
+      const v = resetsIn(r, k); tc += v.card; tw += v.whole;
+      if (!v.card && !v.whole) return '<td class="n zero">0</td>';
+      const tip = `Card: ${v.x.ca || 0} auto, ${v.x.ch || 0} by hand. Whole: ${v.x.wa || 0} auto, ${v.x.wh || 0} by hand.`;
+      return `<td class="n" title="${tip}">${v.card} card · ${v.whole} whole</td>`;
+    }).join('');
+    const tot = tc || tw ? `${tc} card · ${tw} whole` : '0';
+    return `<tr><td>${monthName(k)}</td>${cells}<td class="n${tc || tw ? '' : ' zero'}"><b>${tot}</b></td></tr>`;
+  }).join('');
+  $('resets').innerHTML = head + rows;
+}
+
+function render(sites) {
+  const list = Object.values(sites).sort((a, b) => siteState(a)[3] - siteState(b)[3] || a.site.localeCompare(b.site));
+  if (!list.length) {
+    $('sites').innerHTML = '<div class="empty">No site has reported yet. Each site PC starts sending reports a few minutes after the new com3000-monitor.ps1 is copied in.</div>';
+  } else {
+    $('sites').innerHTML = list.map(renderSite).join('');
+  }
+  const counts = { ok: 0, warn: 0, bad: 0, idle: 0 };
+  for (const r of list) { const s = siteState(r)[1]; counts[s === '--ok' || s === '--info' ? 'ok' : s === '--warn' ? 'warn' : s === '--bad' ? 'bad' : 'idle']++; }
+  $('summary').innerHTML = [
+    ['ok', 'OK'], ['warn', 'Channels out'], ['bad', 'Card or COM3000 down'], ['idle', 'Not reporting']
+  ].map(([k, l]) => `<div class="sum"><span class="dot" style="background:var(--${k === 'idle' ? 'idle' : k})"></span><b>${counts[k]}</b>${l}</div>`).join('');
+  renderResets(list);
+}
+
+let sites = loadSaved();
+async function load() {
+  $('refresh').disabled = true;
+  try {
+    const res = await fetch(`${SERVER}/${TOPIC}/json?poll=1&since=12h`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('ntfy answered ' + res.status);
+    const text = await res.text();
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      let m, r;
+      try { m = JSON.parse(line); if (m.event !== 'message') continue; r = JSON.parse(m.message); } catch (e) { continue; }
+      if (!r || !r.site || !r.t) continue;
+      const old = sites[r.site];
+      if (!old || Date.parse(r.t) >= Date.parse(old.t)) sites[r.site] = r;
+    }
+    save(sites);
+    $('error').hidden = true;
+    $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' · refreshes every minute';
+  } catch (e) {
+    $('error').textContent = "Couldn't read the status reports (" + e.message + '). Showing the last ones this browser saw. Check this device\'s internet connection.';
+    $('error').hidden = false;
+  }
+  render(sites);
+  $('refresh').disabled = false;
+}
+$('refresh').addEventListener('click', load);
+load();
+setInterval(load, 60000);
+</script>
+</body>
+</html>
