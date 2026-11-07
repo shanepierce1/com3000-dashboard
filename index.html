@@ -76,6 +76,12 @@ td.n { font-family: var(--mono); }
 .zero { color: var(--muted); }
 .legend { font-size: 12px; color: var(--muted); margin-top: 8px; }
 .err { color: var(--bad); font-size: 13px; }
+.rs { color: var(--accent); font-weight: 500; }
+ul.resets { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
+ul.resets li { display: flex; flex-wrap: wrap; gap: 0 8px; }
+ul.resets .how { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); align-self: center; }
+ul.resets .how.auto { color: var(--accent); }
+ul.resets .when { color: var(--muted); }
 @media (prefers-reduced-motion: no-preference) { .site { transition: border-color .2s; } }
 </style>
 </head>
@@ -144,7 +150,9 @@ function renderSite(r) {
   const cards = (r.cards || []).map(cd => {
     const cls = !cd.up ? 'down' : (cd.out ? 'some' : '');
     const txt = !cd.up ? 'offline' : (cd.out ? cd.out + ' of ' + cd.n + ' out' : cd.n + ' ch OK');
-    return `<span class="card ${cls}" title="${esc(cd.ip)}">Slot ${esc(cd.s)} · ${txt}</span>`;
+    const rs = (r.slotResets || {})[cd.s] || 0;
+    const rsTxt = rs ? ` <span class="rs" title="Card resets this month">↻${rs}</span>` : '';
+    return `<span class="card ${cls}" title="${esc(cd.ip)}">Slot ${esc(cd.s)} · ${txt}${rsTxt}</span>`;
   }).join('');
   let out = '';
   if (!stale && r.outN) {
@@ -154,8 +162,11 @@ function renderSite(r) {
   const thisMonth = resetsIn(r, monthKey(new Date()));
   const resetTxt = thisMonth.card || thisMonth.whole
     ? `${thisMonth.card} card, ${thisMonth.whole} whole COM3000` : 'none';
-  const last = (r.recent || []).slice(-1)[0];
-  const lastTxt = last ? `${last.k === 'whole' ? 'Whole COM3000' : 'Card slot ' + esc(last.s)} (${last.h === 'auto' ? 'automatic' : 'by hand'}), ${clock(Date.parse(last.t))}` : '—';
+  const what = x => x.k === 'whole' ? 'Whole COM3000' + (x.h === 'auto' && x.s ? (x.s === 'page' ? ' (page down)' : ' (slot ' + esc(x.s) + ' missing)') : '') : 'Card slot ' + esc(x.s);
+  const recent = (r.recent || []).slice().reverse();
+  const lastTxt = recent.length
+    ? `<ul class="resets">${recent.map(x => `<li><span>${what(x)}</span><span class="how ${x.h}">${x.h === 'auto' ? 'automatic' : 'by hand'}</span><span class="when">${clock(Date.parse(x.t))}</span></li>`).join('')}</ul>`
+    : '—';
   let extra = '';
   if (stale) extra = `<div class="note">This site's PC hasn't sent a report since ${clock(Date.parse(r.t))}. It may be off, frozen or offline, so it can't send alerts either.</div>`;
   else if (r.page === 'down') extra = `<div class="note">${esc(r.err || 'No COM3000 card is answering.')}</div>`;
@@ -171,7 +182,7 @@ function renderSite(r) {
         <dt>Last report</dt><dd>${ago(Date.parse(r.t))}</dd>
         ${r.watched ? `<dt>Watching</dt><dd>${r.watched} channels</dd>` : ''}
         <dt>Resets this month</dt><dd>${resetTxt}</dd>
-        <dt>Last reset</dt><dd>${lastTxt}</dd>
+        <dt>Recent resets</dt><dd>${lastTxt}</dd>
         <dt>Last backup</dt><dd>${r.backup ? esc(r.backup) : '—'}</dd>
       </dl>
     </div>
