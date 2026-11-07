@@ -45,6 +45,8 @@ button {
 }
 button:hover { border-color: var(--accent); }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button.remove { color: var(--muted); }
+button.remove.armed { color: var(--bad); border-color: var(--bad); }
 .summary { display: flex; flex-wrap: wrap; gap: 8px; }
 .sum { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font-size: 14px; }
 .sum b { font: 600 20px var(--mono); font-variant-numeric: tabular-nums; }
@@ -77,6 +79,13 @@ td.n { font-family: var(--mono); }
 .legend { font-size: 12px; color: var(--muted); margin-top: 8px; }
 .err { color: var(--bad); font-size: 13px; }
 .rs { color: var(--accent); font-weight: 500; }
+.warnc { color: var(--warn); font-weight: 500; }
+.by-site { display: grid; gap: 16px; }
+.site-resets { display: grid; gap: 6px; min-width: 0; }
+.site-resets h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.ip { color: var(--muted); font: 11px var(--mono); }
+td.hit { color: var(--accent); font-weight: 600; }
+tr.whole td { background: var(--idle-bg); }
 ul.resets { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
 ul.resets li { display: flex; flex-wrap: wrap; gap: 0 8px; }
 ul.resets .how { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); align-self: center; }
@@ -101,6 +110,10 @@ ul.resets .when { color: var(--muted); }
     <h2>Resets per month</h2>
     <div class="table-wrap"><table id="resets"></table></div>
     <div class="legend">Card = one card restarted. Whole = the whole COM3000 restarted. "auto" = done by the monitor, "hand" = from the Reset panel.</div>
+  </section>
+  <section>
+    <h2>Card resets by location</h2>
+    <div class="by-site" id="cardResets"></div>
   </section>
 </div>
 <script>
@@ -129,8 +142,10 @@ function clock(t) { return new Date(t).toLocaleString([], { month: 'short', day:
 function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
 
 // What state is a site in? Returns [label, color var, bg var, rank (lower = worse)]
+function rxTime(r) { return r.rx || Date.parse(r.t); }
 function siteState(r) {
-  const age = (Date.now() - Date.parse(r.t)) / 60000;
+  if (r.page === 'off') return ['Monitor off', '--idle', '--idle-bg', 3];
+  const age = (Date.now() - rxTime(r)) / 60000;
   if (age > STALE_MIN) return ['Not reporting', '--idle', '--idle-bg', 0];
   if (r.page === 'down') return ['COM3000 unreachable', '--bad', '--bad-bg', 1];
   if (r.page === 'paused') return ['Alerts paused', '--info', '--info-bg', 4];
@@ -140,6 +155,13 @@ function siteState(r) {
   return ['OK', '--ok', '--ok-bg', 5];
 }
 
+// warn when the site PC's clock is more than 3 minutes off (its times in alerts and logs will be off too)
+function clockOff(r) {
+  if (!r.rx) return '';
+  const off = Math.round((Date.parse(r.t) - r.rx) / 60000);
+  if (Math.abs(off) < 3) return '';
+  return `<dt>PC clock</dt><dd class="warnc">${Math.abs(off)} min ${off < 0 ? 'slow' : 'fast'}: set the time on that PC</dd>`;
+}
 function monthKey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
 function monthName(k) { const [y, m] = k.split('-'); return new Date(+y, +m - 1, 1).toLocaleString([], { month: 'short', year: 'numeric' }); }
 function resetsIn(r, k) { const x = (r.resets || {})[k] || {}; return { card: (x.ca || 0) + (x.ch || 0), whole: (x.wa || 0) + (x.wh || 0), x }; }
@@ -168,7 +190,9 @@ function renderSite(r) {
     ? `<ul class="resets">${recent.map(x => `<li><span>${what(x)}</span><span class="how ${x.h}">${x.h === 'auto' ? 'automatic' : 'by hand'}</span><span class="when">${clock(Date.parse(x.t))}</span></li>`).join('')}</ul>`
     : '—';
   let extra = '';
-  if (stale) extra = `<div class="note">This site's PC hasn't sent a report since ${clock(Date.parse(r.t))}. It may be off, frozen or offline, so it can't send alerts either.</div>`;
+  const removable = stale || r.page === 'off';
+  if (r.page === 'off') extra = `<div class="note">The monitor was turned off at this site (Alerts OFF) on ${clock(rxTime(r))}. It reports again when it's turned back on.</div>`;
+  else if (stale) extra = `<div class="note">This site's PC hasn't sent a report since ${clock(rxTime(r))}. It may be off, frozen or offline, so it can't send alerts either.</div>`;
   else if (r.page === 'down') extra = `<div class="note">${esc(r.err || 'No COM3000 card is answering.')}</div>`;
   else if (r.page === 'paused') extra = `<div class="note">Alerts paused until ${clock(Date.parse(r.paused))}.</div>`;
   else if (r.via) extra = `<div class="note">Main card not answering. Reading the COM3000 from card ${esc(r.via)}.</div>`;
@@ -176,15 +200,17 @@ function renderSite(r) {
     <div class="site-top"><span class="site-name">${esc(r.site)}</span><span class="pill">${label}</span></div>
     <div class="site-body">
       ${extra}
-      ${!stale && cards ? `<div class="cards">${cards}</div>` : ''}
+      ${!removable && cards ? `<div class="cards">${cards}</div>` : ''}
       ${out}
       <dl class="facts">
-        <dt>Last report</dt><dd>${ago(Date.parse(r.t))}</dd>
+        <dt>Last report</dt><dd>${ago(rxTime(r))}</dd>
+        ${clockOff(r)}
         ${r.watched ? `<dt>Watching</dt><dd>${r.watched} channels</dd>` : ''}
         <dt>Resets this month</dt><dd>${resetTxt}</dd>
         <dt>Recent resets</dt><dd>${lastTxt}</dd>
         <dt>Last backup</dt><dd>${r.backup ? esc(r.backup) : '—'}</dd>
       </dl>
+      ${removable ? `<div><button type="button" class="remove" data-site="${esc(r.site)}">Remove from dashboard</button></div>` : ''}
     </div>
   </article>`;
 }
@@ -209,6 +235,41 @@ function renderResets(list) {
   $('resets').innerHTML = head + rows;
 }
 
+function renderCardResets(list) {
+  const months = [];
+  const d = new Date(); d.setDate(1);
+  for (let i = 0; i < 6; i++) { months.push(monthKey(d)); d.setMonth(d.getMonth() - 1); }
+  const sorted = list.slice().sort((a, b) => a.site.localeCompare(b.site));
+  if (!sorted.length) { $('cardResets').innerHTML = '<div class="empty">No reports yet.</div>'; return; }
+  $('cardResets').innerHTML = sorted.map(r => {
+    const sm = r.slotMonths || {};
+    // every card the site has, plus any card that shows up in its reset history
+    const slots = new Set((r.cards || []).map(c => String(c.s)));
+    for (const k of months) for (const sl of Object.keys(sm[k] || {})) slots.add(sl);
+    const ipOf = Object.fromEntries((r.cards || []).map(c => [String(c.s), c.ip]));
+    const order = [...slots].sort((a, b) => (+a || 0) - (+b || 0) || a.localeCompare(b));
+    const cell = n => n ? `<td class="n hit">${n}</td>` : '<td class="n zero">0</td>';
+    let colTot = months.map(() => 0);
+    const rows = order.map(sl => {
+      let t = 0;
+      const cells = months.map((k, i) => { const n = (sm[k] || {})[sl] || 0; t += n; colTot[i] += n; return cell(n); }).join('');
+      return `<tr><td>Slot ${esc(sl)}${ipOf[sl] ? ` <span class="ip">${esc(ipOf[sl])}</span>` : ''}</td>${cells}<td class="n"><b>${t}</b></td></tr>`;
+    }).join('');
+    let wt = 0;
+    const wcells = months.map(k => { const v = resetsIn(r, k).whole; wt += v; return cell(v); }).join('');
+    const known = !!r.slotMonths;
+    return `<div class="site-resets">
+      <h3>${esc(r.site)}</h3>
+      <div class="table-wrap"><table>
+        <tr><th>Card</th>${months.map(k => `<th>${monthName(k)}</th>`).join('')}<th>6 months</th></tr>
+        ${rows || '<tr><td colspan="8" class="zero">No cards reported yet.</td></tr>'}
+        <tr class="whole"><td>Whole COM3000</td>${wcells}<td class="n"><b>${wt}</b></td></tr>
+      </table></div>
+      ${known ? '' : '<div class="legend">Card-by-card counts appear after this site gets the newest com3000-monitor.ps1.</div>'}
+    </div>`;
+  }).join('');
+}
+
 function render(sites) {
   const list = Object.values(sites).sort((a, b) => siteState(a)[3] - siteState(b)[3] || a.site.localeCompare(b.site));
   if (!list.length) {
@@ -219,10 +280,26 @@ function render(sites) {
   const counts = { ok: 0, warn: 0, bad: 0, idle: 0 };
   for (const r of list) { const s = siteState(r)[1]; counts[s === '--ok' || s === '--info' ? 'ok' : s === '--warn' ? 'warn' : s === '--bad' ? 'bad' : 'idle']++; }
   $('summary').innerHTML = [
-    ['ok', 'OK'], ['warn', 'Channels out'], ['bad', 'Card or COM3000 down'], ['idle', 'Not reporting']
+    ['ok', 'OK'], ['warn', 'Channels out'], ['bad', 'Card or COM3000 down'], ['idle', 'Off or not reporting']
   ].map(([k, l]) => `<div class="sum"><span class="dot" style="background:var(--${k === 'idle' ? 'idle' : k})"></span><b>${counts[k]}</b>${l}</div>`).join('');
   renderResets(list);
+  renderCardResets(list);
 }
+
+const HIDE_KEY = 'com3000-dashboard-removed';
+function loadHidden() { try { return JSON.parse(localStorage.getItem(HIDE_KEY) || '{}'); } catch (e) { return {}; } }
+function saveHidden(h) { try { localStorage.setItem(HIDE_KEY, JSON.stringify(h)); } catch (e) {} }
+let hidden = loadHidden();
+
+// "Remove from dashboard": first click asks, second click removes (from this browser).
+// If the site ever sends a new report, it comes back by itself.
+document.addEventListener('click', ev => {
+  const b = ev.target.closest('button.remove'); if (!b) return;
+  const site = b.dataset.site;
+  if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Click again to remove ' + site; b.classList.add('armed'); return; }
+  if (sites[site]) hidden[site] = rxTime(sites[site]);
+  delete sites[site]; save(sites); saveHidden(hidden); render(sites);
+});
 
 let sites = loadSaved();
 async function load() {
@@ -236,8 +313,11 @@ async function load() {
       let m, r;
       try { m = JSON.parse(line); if (m.event !== 'message') continue; r = JSON.parse(m.message); } catch (e) { continue; }
       if (!r || !r.site || !r.t) continue;
+      // use the time ntfy received the report, not the site PC's own clock (which can be wrong)
+      if (m.time) r.rx = m.time * 1000;
+      if (hidden[r.site]) { if (rxTime(r) <= hidden[r.site]) continue; delete hidden[r.site]; saveHidden(hidden); }   // removed, unless it reported since
       const old = sites[r.site];
-      if (!old || Date.parse(r.t) >= Date.parse(old.t)) sites[r.site] = r;
+      if (!old || rxTime(r) >= rxTime(old)) sites[r.site] = r;
     }
     save(sites);
     $('error').hidden = true;
