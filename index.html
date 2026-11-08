@@ -12,8 +12,9 @@
 :root {
   --bg: #f3f5f7; --panel: #ffffff; --line: #dde2e8; --fg: #1b2530; --muted: #5d6b7a;
   --accent: #1f5f8b;
-  --ok: #1e7a46; --ok-bg: #e3f3e9; --warn: #9a5b00; --warn-bg: #fdf0d9;
+  --ok: #1e7a46; --ok-bg: #e3f3e9; --warn: #8a6100; --warn-bg: #fff4c2;
   --bad: #b3261e; --bad-bg: #fbe4e2; --idle: #5d6b7a; --idle-bg: #e8ecf0; --info: #1f5f8b; --info-bg: #e2eef7;
+  --dot-ok: #1f9d55; --dot-warn: #f5c400; --dot-bad: #e02424; --dot-idle: #8a96a3;
   --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
   color-scheme: light;
@@ -22,7 +23,8 @@
   :root {
     --bg: #0f151b; --panel: #172029; --line: #26323e; --fg: #e4eaf0; --muted: #93a2b2;
     --accent: #6fb3e0;
-    --ok: #6fd39b; --ok-bg: #143323; --warn: #f2b85c; --warn-bg: #3a2a10; --bad: #ff8a80; --bad-bg: #3d1916;
+    --ok: #6fd39b; --ok-bg: #143323; --warn: #ffd43b; --warn-bg: #3a3210; --bad: #ff8a80; --bad-bg: #3d1916;
+    --dot-ok: #34c374; --dot-warn: #ffd43b; --dot-bad: #ff5a4f; --dot-idle: #6b7785;
     --idle: #93a2b2; --idle-bg: #222c36; --info: #6fb3e0; --info-bg: #142a3a;
     color-scheme: dark;
   }
@@ -50,7 +52,15 @@ button.remove.armed { color: var(--bad); border-color: var(--bad); }
 .summary { display: flex; flex-wrap: wrap; gap: 8px; }
 .sum { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 14px; font-size: 14px; }
 .sum b { font: 600 20px var(--mono); font-variant-numeric: tabular-nums; }
-.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+.ico { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; flex: none;
+  font: 700 12px/1 var(--sans); color: #fff; }
+.ico.ok { background: var(--dot-ok); }
+.ico.warn { background: var(--dot-warn); color: #3a2a00; border-radius: 0; width: 22px; padding-top: 5px; font-size: 11px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+.ico.bad { border-radius: 4px; }
+.ico.bad { background: var(--dot-bad); }
+.ico.idle { background: var(--dot-idle); }
+.sum.none { opacity: .6; }
 .sites { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; align-items: start; }
 .site { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; align-content: start; min-width: 0; }
 .site-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px 8px; border-top: 4px solid var(--c); }
@@ -80,6 +90,22 @@ td.n { font-family: var(--mono); }
 .err { color: var(--bad); font-size: 13px; }
 .rs { color: var(--accent); font-weight: 500; }
 .warnc { color: var(--warn); font-weight: 500; }
+.alerts-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px 16px; flex-wrap: wrap; }
+.alerts-head h2 { margin: 0 0 10px; }
+.filter { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.filter select { font: 13px var(--sans); color: var(--fg); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+.alerts { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.alert { display: grid; grid-template-columns: 74px 1fr; gap: 2px 12px; padding: 9px 14px; border-top: 1px solid var(--line); border-left: 4px solid var(--c); min-width: 0; }
+.alert:first-child { border-top: 0; }
+.alert .when { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; grid-row: span 2; padding-top: 2px; }
+.alert .top { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; min-width: 0; }
+.alert .loc { font-weight: 600; }
+.alert .ttl { font-weight: 500; }
+.alert .lvl { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--c); }
+.alert .msg { color: var(--muted); font-size: 13px; white-space: pre-line; overflow-wrap: anywhere; min-width: 0; }
+.alert .msg.clip { max-height: 3.9em; overflow: hidden; }
+.alerts .empty-row { padding: 14px; color: var(--muted); }
+.more { padding: 8px 14px; border-top: 1px solid var(--line); }
 .by-site { display: grid; gap: 16px; }
 .site-resets { display: grid; gap: 6px; min-width: 0; }
 .site-resets h3 { margin: 0; font-size: 15px; font-weight: 600; }
@@ -103,8 +129,18 @@ ul.resets .when { color: var(--muted); }
   <div class="summary" id="summary"></div>
   <div class="err" id="error" hidden></div>
   <section>
-    <h2>Sites</h2>
+    <h2>Locations</h2>
     <div class="sites" id="sites"></div>
+  </section>
+  <section>
+    <div class="alerts-head">
+      <h2>Recent alerts</h2>
+      <label class="filter">Location
+        <select id="alertSite"><option value="">All locations</option></select>
+      </label>
+    </div>
+    <div class="alerts" id="alerts"></div>
+    <div class="legend" id="alertsNote">The same alerts the phones get, newest first: everything from the last 12 hours, plus each location's last 8 alerts from the past 7 days.</div>
   </section>
   <section>
     <h2>Resets per month</h2>
@@ -191,8 +227,8 @@ function renderSite(r) {
     : '—';
   let extra = '';
   const removable = stale || r.page === 'off';
-  if (r.page === 'off') extra = `<div class="note">The monitor was turned off at this site (Alerts OFF) on ${clock(rxTime(r))}. It reports again when it's turned back on.</div>`;
-  else if (stale) extra = `<div class="note">This site's PC hasn't sent a report since ${clock(rxTime(r))}. It may be off, frozen or offline, so it can't send alerts either.</div>`;
+  if (r.page === 'off') extra = `<div class="note">The monitor was turned off at this location (Alerts OFF) on ${clock(rxTime(r))}. It reports again when it's turned back on.</div>`;
+  else if (stale) extra = `<div class="note">This location's PC hasn't sent a report since ${clock(rxTime(r))}. It may be off, frozen or offline, so it can't send alerts either.</div>`;
   else if (r.page === 'down') extra = `<div class="note">${esc(r.err || 'No COM3000 card is answering.')}</div>`;
   else if (r.page === 'paused') extra = `<div class="note">Alerts paused until ${clock(Date.parse(r.paused))}.</div>`;
   else if (r.via) extra = `<div class="note">Main card not answering. Reading the COM3000 from card ${esc(r.via)}.</div>`;
@@ -204,6 +240,7 @@ function renderSite(r) {
       ${out}
       <dl class="facts">
         <dt>Last report</dt><dd>${ago(rxTime(r))}</dd>
+        ${(a => a ? `<dt>Last alert</dt><dd>${esc(a.title)}, ${ago(a.rx)}</dd>` : '')(lastAlert(r.site))}
         ${clockOff(r)}
         ${r.watched ? `<dt>Watching</dt><dd>${r.watched} channels</dd>` : ''}
         <dt>Resets this month</dt><dd>${resetTxt}</dd>
@@ -220,7 +257,7 @@ function renderResets(list) {
   const d = new Date(); d.setDate(1);
   for (let i = 0; i < 6; i++) { months.push(monthKey(d)); d.setMonth(d.getMonth() - 1); }
   if (!list.length) { $('resets').innerHTML = '<tr><td class="zero">No reports yet.</td></tr>'; return; }
-  const head = '<tr><th>Month</th>' + list.map(r => `<th>${esc(r.site)}</th>`).join('') + '<th>All sites</th></tr>';
+  const head = '<tr><th>Month</th>' + list.map(r => `<th>${esc(r.site)}</th>`).join('') + '<th>All locations</th></tr>';
   const rows = months.map(k => {
     let tc = 0, tw = 0;
     const cells = list.map(r => {
@@ -265,7 +302,7 @@ function renderCardResets(list) {
         ${rows || '<tr><td colspan="8" class="zero">No cards reported yet.</td></tr>'}
         <tr class="whole"><td>Whole COM3000</td>${wcells}<td class="n"><b>${wt}</b></td></tr>
       </table></div>
-      ${known ? '' : '<div class="legend">Card-by-card counts appear after this site gets the newest com3000-monitor.ps1.</div>'}
+      ${known ? '' : '<div class="legend">Card-by-card counts appear after this location gets the newest com3000-monitor.ps1.</div>'}
     </div>`;
   }).join('');
 }
@@ -273,17 +310,22 @@ function renderCardResets(list) {
 function render(sites) {
   const list = Object.values(sites).sort((a, b) => siteState(a)[3] - siteState(b)[3] || a.site.localeCompare(b.site));
   if (!list.length) {
-    $('sites').innerHTML = '<div class="empty">No site has reported yet. Each site PC starts sending reports a few minutes after the new com3000-monitor.ps1 is copied in.</div>';
+    $('sites').innerHTML = '<div class="empty">No location has reported yet. Each location PC starts sending reports a few minutes after the new com3000-monitor.ps1 is copied in.</div>';
   } else {
     $('sites').innerHTML = list.map(renderSite).join('');
   }
   const counts = { ok: 0, warn: 0, bad: 0, idle: 0 };
   for (const r of list) { const s = siteState(r)[1]; counts[s === '--ok' || s === '--info' ? 'ok' : s === '--warn' ? 'warn' : s === '--bad' ? 'bad' : 'idle']++; }
+  const loc = n => n === 1 ? 'location' : 'locations';
   $('summary').innerHTML = [
-    ['ok', 'OK'], ['warn', 'Channels out'], ['bad', 'Card or COM3000 down'], ['idle', 'Off or not reporting']
-  ].map(([k, l]) => `<div class="sum"><span class="dot" style="background:var(--${k === 'idle' ? 'idle' : k})"></span><b>${counts[k]}</b>${l}</div>`).join('');
+    ['ok', '\u2713', n => `${loc(n)} OK`],
+    ['warn', '!', n => `${loc(n)} with channels out`],
+    ['bad', '\u2715', n => `${loc(n)} with a card or COM3000 down`],
+    ['idle', '\u2013', n => `${loc(n)} off or not reporting`]
+  ].map(([k, icon, l]) => `<div class="sum ${counts[k] ? '' : 'none'}"><span class="ico ${k}" aria-hidden="true">${icon}</span><b>${counts[k]}</b>${l(counts[k])}</div>`).join('');
   renderResets(list);
   renderCardResets(list);
+  renderAlerts();
 }
 
 const HIDE_KEY = 'com3000-dashboard-removed';
@@ -302,6 +344,52 @@ document.addEventListener('click', ev => {
 });
 
 let sites = loadSaved();
+
+// ---- Recent alerts (copies the locations send alongside their phone alerts) ----
+const ALERT_KEY = 'com3000-dashboard-alerts';
+let alerts = (() => { try { return JSON.parse(localStorage.getItem(ALERT_KEY) || '[]').filter(a => a && a.key); } catch (e) { return []; } })();
+// one entry per alert, whether it arrived as its own copy or inside a status report
+function addAlert(site, t, title, msg, prio, rx) {
+  const key = site + '|' + t + '|' + title;
+  const have = alerts.find(a => a.key === key);
+  if (have) { if (String(msg || '').length > String(have.msg || '').length) have.msg = msg; return; }
+  alerts.push({ key, rx, site, title, msg, prio });
+}
+function saveAlerts() { try { localStorage.setItem(ALERT_KEY, JSON.stringify(alerts)); } catch (e) {} }
+const LEVEL = { urgent: ['Urgent', '--bad'], max: ['Urgent', '--bad'], high: ['High', '--warn'], default: ['Normal', '--idle'], low: ['Quiet', '--idle'], min: ['Quiet', '--idle'] };
+let showAll = false;
+function when(t) {
+  const d = new Date(t), today = new Date();
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  if (d.toDateString() === today.toDateString()) return time;
+  const y = new Date(today); y.setDate(today.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'Yesterday<br>' + time;
+  return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }) + '<br>' + time;
+}
+function renderAlerts() {
+  const sel = $('alertSite'), pick = sel.value;
+  const names = [...new Set([...Object.keys(sites), ...alerts.map(a => a.site)])].sort((a, b) => a.localeCompare(b));
+  sel.innerHTML = '<option value="">All locations</option>' + names.map(n => `<option${n === pick ? ' selected' : ''}>${esc(n)}</option>`).join('');
+  const list = alerts.filter(a => !pick || a.site === pick);
+  if (!list.length) { $('alerts').innerHTML = `<div class="empty-row">No alerts${pick ? ' for ' + esc(pick) : ''} in the last 7 days that this page has seen.</div>`; return; }
+  const shown = showAll ? list : list.slice(0, 25);
+  $('alerts').innerHTML = shown.map(a => {
+    const [lvl, c] = LEVEL[a.prio] || LEVEL.default;
+    const msg = String(a.msg || '');
+    return `<div class="alert" style="--c:var(${c})">
+      <div class="when">${when(a.rx)}</div>
+      <div class="top"><span class="loc">${esc(a.site)}</span><span class="ttl">${esc(a.title)}</span><span class="lvl">${lvl}</span></div>
+      <div class="msg${msg.split('\n').length > 3 ? ' clip' : ''}" title="${esc(msg)}">${esc(msg)}</div>
+    </div>`;
+  }).join('') + (list.length > shown.length ? `<div class="more"><button type="button" id="showAll">Show all ${list.length}</button></div>` : '');
+}
+document.addEventListener('change', e => { if (e.target.id === 'alertSite') { showAll = false; renderAlerts(); } });
+document.addEventListener('click', e => {
+  if (e.target.id === 'showAll') { showAll = true; renderAlerts(); }
+  const m = e.target.closest('.msg.clip'); if (m) m.classList.remove('clip');
+});
+function lastAlert(site) { return alerts.find(a => a.site === site); }
+
 async function load() {
   $('refresh').disabled = true;
   try {
@@ -315,11 +403,20 @@ async function load() {
       if (!r || !r.site || !r.t) continue;
       // use the time ntfy received the report, not the site PC's own clock (which can be wrong)
       if (m.time) r.rx = m.time * 1000;
+      if (r.kind === 'alert') { addAlert(r.site, r.t, r.title, r.msg, r.prio, r.rx || Date.parse(r.t)); continue; }
+      // a status report also carries the location's recent alerts (older than ntfy's 12 hours too)
+      if (Array.isArray(r.alerts) && r.rx) {
+        const skew = Date.parse(r.t) - r.rx;      // how far that PC's clock is off
+        for (const a of r.alerts) if (a && a.t) addAlert(a.site || r.site, a.t, a.title, a.msg, a.prio, Date.parse(a.t) - skew);
+      }
       if (hidden[r.site]) { if (rxTime(r) <= hidden[r.site]) continue; delete hidden[r.site]; saveHidden(hidden); }   // removed, unless it reported since
       const old = sites[r.site];
       if (!old || rxTime(r) >= rxTime(old)) sites[r.site] = r;
     }
     save(sites);
+    const weekAgo = Date.now() - 7 * 86400000;
+    alerts = alerts.filter(a => a.rx >= weekAgo).sort((a, b) => b.rx - a.rx).slice(0, 400);
+    saveAlerts();
     $('error').hidden = true;
     $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' · refreshes every minute';
   } catch (e) {
@@ -332,6 +429,8 @@ async function load() {
 $('refresh').addEventListener('click', load);
 load();
 setInterval(load, 60000);
+// phones pause pages in the background: refresh straight away when the page is opened again
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
 </script>
 </body>
 </html>
