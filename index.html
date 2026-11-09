@@ -123,11 +123,12 @@ ul.resets .when { color: var(--muted); }
 .alerts-col .alerts { max-height: 60vh; overflow-y: auto; }
 @media (min-width: 1000px) {
   .top-grid { grid-template-columns: minmax(0, 1fr) minmax(360px, 34%); align-items: start; }
-  .alerts-col { grid-column: 2; grid-row: 1; position: sticky; top: 12px; }
+  .alerts-col { grid-column: 2; grid-row: 1; }
   .sites-col { grid-column: 1; grid-row: 1; }
   .alerts-col .alerts { max-height: calc(100vh - 150px); }
 }
-.alerts-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.alerts-tools { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.alerts-tools select { width: 190px; }
 button.clear.armed { color: var(--bad); border-color: var(--bad); }
 .undo { font-size: 12px; color: var(--muted); padding: 6px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
 @media (prefers-reduced-motion: no-preference) { .site { transition: border-color .2s; } }
@@ -143,15 +144,13 @@ button.clear.armed { color: var(--bad); border-color: var(--bad); }
   <div class="err" id="error" hidden></div>
   <div class="top-grid">
   <section class="alerts-col">
-    <div class="alerts-head">
-      <h2>Recent alerts</h2>
+    <h2>Recent alerts</h2>
       <div class="alerts-tools">
         <label class="filter">Location
           <select id="alertSite"><option value="">All locations</option></select>
         </label>
         <button type="button" class="clear" id="clearAlerts">Clear</button>
       </div>
-    </div>
     <div class="alerts" id="alerts"></div>
     <div class="legend" id="alertsNote">The same alerts the phones get, newest first (last 7 days). Clear only hides them on this device - new alerts still show up.</div>
   </section>
@@ -397,7 +396,7 @@ function renderAlerts() {
   sel.innerHTML = '<option value="">All locations</option>' + names.map(n => `<option${n === pick ? ' selected' : ''}>${esc(n)}</option>`).join('');
   const list = alerts.filter(a => (!pick || a.site === pick) && !isCleared(a));
   const btn = $('clearAlerts'); btn.dataset.armed = ''; btn.classList.remove('armed');
-  btn.textContent = pick ? 'Clear ' + pick : 'Clear all'; btn.disabled = !list.length;
+  btn.textContent = 'Clear'; btn.title = pick ? 'Clear the alerts for ' + pick : 'Clear the alerts for all locations'; btn.disabled = !list.length;
   const undo = undoCleared ? `<div class="undo">Alerts cleared. <button type="button" id="undoClear">Undo</button></div>` : '';
   if (!list.length) { $('alerts').innerHTML = undo + `<div class="empty-row">No alerts${pick ? ' for ' + esc(pick) : ''} right now. New ones will show up here.</div>`; return; }
   const shown = showAll ? list : list.slice(0, 25);
@@ -416,7 +415,7 @@ document.addEventListener('click', e => {
   if (e.target.id === 'showAll') { showAll = true; renderAlerts(); }
   if (e.target.id === 'clearAlerts') {
     const b = e.target;
-    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.classList.add('armed'); b.textContent = 'Click again to clear'; return; }
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.classList.add('armed'); b.textContent = 'Sure?'; return; }
     undoCleared = JSON.parse(JSON.stringify(cleared));
     cleared[$('alertSite').value || '*'] = Date.now(); saveCleared(); showAll = false; renderAlerts();
     clearTimeout(window.undoTimer); window.undoTimer = setTimeout(() => { undoCleared = null; renderAlerts(); }, 30000);
