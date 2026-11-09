@@ -35,7 +35,7 @@ body {
   background: var(--bg); color: var(--fg); font: 15px/1.45 var(--sans);
   padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 32px max(16px, env(safe-area-inset-left));
 }
-.wrap { max-width: 1100px; margin: 0 auto; display: grid; gap: 20px; }
+.wrap { max-width: 1400px; margin: 0 auto; display: grid; gap: 20px; }
 .wrap > * { min-width: 0; }
 header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
 h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
@@ -117,6 +117,19 @@ ul.resets li { display: flex; flex-wrap: wrap; gap: 0 8px; }
 ul.resets .how { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); align-self: center; }
 ul.resets .how.auto { color: var(--accent); }
 ul.resets .when { color: var(--muted); }
+/* locations on the left, recent alerts on the right (alerts first on phones) */
+.top-grid { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+.top-grid > section { min-width: 0; }
+.alerts-col .alerts { max-height: 60vh; overflow-y: auto; }
+@media (min-width: 1000px) {
+  .top-grid { grid-template-columns: minmax(0, 1fr) minmax(360px, 34%); align-items: start; }
+  .alerts-col { grid-column: 2; grid-row: 1; position: sticky; top: 12px; }
+  .sites-col { grid-column: 1; grid-row: 1; }
+  .alerts-col .alerts { max-height: calc(100vh - 150px); }
+}
+.alerts-tools { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+button.clear.armed { color: var(--bad); border-color: var(--bad); }
+.undo { font-size: 12px; color: var(--muted); padding: 6px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
 @media (prefers-reduced-motion: no-preference) { .site { transition: border-color .2s; } }
 </style>
 </head>
@@ -128,20 +141,25 @@ ul.resets .when { color: var(--muted); }
   </header>
   <div class="summary" id="summary"></div>
   <div class="err" id="error" hidden></div>
-  <section>
+  <div class="top-grid">
+  <section class="alerts-col">
+    <div class="alerts-head">
+      <h2>Recent alerts</h2>
+      <div class="alerts-tools">
+        <label class="filter">Location
+          <select id="alertSite"><option value="">All locations</option></select>
+        </label>
+        <button type="button" class="clear" id="clearAlerts">Clear</button>
+      </div>
+    </div>
+    <div class="alerts" id="alerts"></div>
+    <div class="legend" id="alertsNote">The same alerts the phones get, newest first (last 7 days). Clear only hides them on this device - new alerts still show up.</div>
+  </section>
+  <section class="sites-col">
     <h2>Locations</h2>
     <div class="sites" id="sites"></div>
   </section>
-  <section>
-    <div class="alerts-head">
-      <h2>Recent alerts</h2>
-      <label class="filter">Location
-        <select id="alertSite"><option value="">All locations</option></select>
-      </label>
-    </div>
-    <div class="alerts" id="alerts"></div>
-    <div class="legend" id="alertsNote">The same alerts the phones get, newest first: everything from the last 12 hours, plus each location's last 8 alerts from the past 7 days.</div>
-  </section>
+  </div>
   <section>
     <h2>Resets per month</h2>
     <div class="table-wrap"><table id="resets"></table></div>
@@ -246,6 +264,7 @@ function renderSite(r) {
         <dt>Resets this month</dt><dd>${resetTxt}</dd>
         <dt>Recent resets</dt><dd>${lastTxt}</dd>
         <dt>Last backup</dt><dd>${r.backup ? esc(r.backup) : '—'}</dd>
+        ${r.epgRef && r.epgRef.at ? `<dt>EPG refresh</dt><dd${r.epgRef.ok ? '' : ' class="warnc"'}>${r.epgRef.ok ? 'Refreshed' : 'Failed'} ${clock(Date.parse(r.epgRef.at) - (r.rx ? Date.parse(r.t) - r.rx : 0))}</dd>` : ''}
       </dl>
       ${removable ? `<div><button type="button" class="remove" data-site="${esc(r.site)}">Remove from dashboard</button></div>` : ''}
     </div>
@@ -355,6 +374,12 @@ function addAlert(site, t, title, msg, prio, rx) {
   if (have) { if (String(msg || '').length > String(have.msg || '').length) have.msg = msg; return; }
   alerts.push({ key, rx, site, title, msg, prio });
 }
+// "Clear" hides the alerts shown now, on this device only (all locations, or just the picked one)
+const CLEAR_KEY = 'com3000-dashboard-cleared';
+let cleared = (() => { try { return JSON.parse(localStorage.getItem(CLEAR_KEY) || '{}') || {}; } catch (e) { return {}; } })();
+let undoCleared = null;
+function saveCleared() { try { localStorage.setItem(CLEAR_KEY, JSON.stringify(cleared)); } catch (e) {} }
+function isCleared(a) { return a.rx <= Math.max(cleared['*'] || 0, cleared[a.site] || 0); }
 function saveAlerts() { try { localStorage.setItem(ALERT_KEY, JSON.stringify(alerts)); } catch (e) {} }
 const LEVEL = { urgent: ['Urgent', '--bad'], max: ['Urgent', '--bad'], high: ['High', '--warn'], default: ['Normal', '--idle'], low: ['Quiet', '--idle'], min: ['Quiet', '--idle'] };
 let showAll = false;
@@ -370,10 +395,13 @@ function renderAlerts() {
   const sel = $('alertSite'), pick = sel.value;
   const names = [...new Set([...Object.keys(sites), ...alerts.map(a => a.site)])].sort((a, b) => a.localeCompare(b));
   sel.innerHTML = '<option value="">All locations</option>' + names.map(n => `<option${n === pick ? ' selected' : ''}>${esc(n)}</option>`).join('');
-  const list = alerts.filter(a => !pick || a.site === pick);
-  if (!list.length) { $('alerts').innerHTML = `<div class="empty-row">No alerts${pick ? ' for ' + esc(pick) : ''} in the last 7 days that this page has seen.</div>`; return; }
+  const list = alerts.filter(a => (!pick || a.site === pick) && !isCleared(a));
+  const btn = $('clearAlerts'); btn.dataset.armed = ''; btn.classList.remove('armed');
+  btn.textContent = pick ? 'Clear ' + pick : 'Clear all'; btn.disabled = !list.length;
+  const undo = undoCleared ? `<div class="undo">Alerts cleared. <button type="button" id="undoClear">Undo</button></div>` : '';
+  if (!list.length) { $('alerts').innerHTML = undo + `<div class="empty-row">No alerts${pick ? ' for ' + esc(pick) : ''} right now. New ones will show up here.</div>`; return; }
   const shown = showAll ? list : list.slice(0, 25);
-  $('alerts').innerHTML = shown.map(a => {
+  $('alerts').innerHTML = undo + shown.map(a => {
     const [lvl, c] = LEVEL[a.prio] || LEVEL.default;
     const msg = String(a.msg || '');
     return `<div class="alert" style="--c:var(${c})">
@@ -386,6 +414,14 @@ function renderAlerts() {
 document.addEventListener('change', e => { if (e.target.id === 'alertSite') { showAll = false; renderAlerts(); } });
 document.addEventListener('click', e => {
   if (e.target.id === 'showAll') { showAll = true; renderAlerts(); }
+  if (e.target.id === 'clearAlerts') {
+    const b = e.target;
+    if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.classList.add('armed'); b.textContent = 'Click again to clear'; return; }
+    undoCleared = JSON.parse(JSON.stringify(cleared));
+    cleared[$('alertSite').value || '*'] = Date.now(); saveCleared(); showAll = false; renderAlerts();
+    clearTimeout(window.undoTimer); window.undoTimer = setTimeout(() => { undoCleared = null; renderAlerts(); }, 30000);
+  }
+  if (e.target.id === 'undoClear') { cleared = undoCleared || {}; undoCleared = null; saveCleared(); renderAlerts(); }
   const m = e.target.closest('.msg.clip'); if (m) m.classList.remove('clip');
 });
 function lastAlert(site) { return alerts.find(a => a.site === site); }
