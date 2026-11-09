@@ -131,6 +131,7 @@ ul.resets .when { color: var(--muted); }
 .alerts-tools select { width: 190px; }
 button.clear.armed { color: var(--bad); border-color: var(--bad); }
 .undo { font-size: 12px; color: var(--muted); padding: 6px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+.since { display: block; font-size: 11px; font-weight: 400; color: var(--muted); font-family: inherit; text-transform: none; letter-spacing: 0; }
 @media (prefers-reduced-motion: no-preference) { .site { transition: border-color .2s; } }
 </style>
 </head>
@@ -287,7 +288,17 @@ function renderResets(list) {
     const tot = tc || tw ? `${tc} card · ${tw} whole` : '0';
     return `<tr><td>${monthName(k)}</td>${cells}<td class="n${tc || tw ? '' : ' zero'}"><b>${tot}</b></td></tr>`;
   }).join('');
-  $('resets').innerHTML = head + rows;
+  // every reset since each location started keeping track
+  let ac = 0, aw = 0;
+  const allCells = list.map(r => {
+    const a = r.allRes;
+    if (!a) return '<td class="n zero" title="Shows after this location gets the newest com3000-monitor.ps1">—</td>';
+    ac += a.card || 0; aw += a.whole || 0;
+    const since = a.since ? `<span class="since">since ${monthName(a.since)}</span>` : '';
+    return a.card || a.whole ? `<td class="n">${a.card} card · ${a.whole} whole${since}</td>` : `<td class="n zero">0${since}</td>`;
+  }).join('');
+  const allRow = `<tr class="whole"><td><b>All time</b></td>${allCells}<td class="n"><b>${ac || aw ? `${ac} card · ${aw} whole` : '0'}</b></td></tr>`;
+  $('resets').innerHTML = head + rows + allRow;
 }
 
 function renderCardResets(list) {
@@ -301,6 +312,9 @@ function renderCardResets(list) {
     // every card the site has, plus any card that shows up in its reset history
     const slots = new Set((r.cards || []).map(c => String(c.s)));
     for (const k of months) for (const sl of Object.keys(sm[k] || {})) slots.add(sl);
+    const all = r.allRes;
+    if (all) for (const sl of Object.keys(all.slots || {})) slots.add(sl);
+    const allCell = n => all ? `<td class="n"><b>${n || 0}</b></td>` : '<td class="n zero">—</td>';
     const ipOf = Object.fromEntries((r.cards || []).map(c => [String(c.s), c.ip]));
     const order = [...slots].sort((a, b) => (+a || 0) - (+b || 0) || a.localeCompare(b));
     const cell = n => n ? `<td class="n hit">${n}</td>` : '<td class="n zero">0</td>';
@@ -308,7 +322,7 @@ function renderCardResets(list) {
     const rows = order.map(sl => {
       let t = 0;
       const cells = months.map((k, i) => { const n = (sm[k] || {})[sl] || 0; t += n; colTot[i] += n; return cell(n); }).join('');
-      return `<tr><td>Slot ${esc(sl)}${ipOf[sl] ? ` <span class="ip">${esc(ipOf[sl])}</span>` : ''}</td>${cells}<td class="n"><b>${t}</b></td></tr>`;
+      return `<tr><td>Slot ${esc(sl)}${ipOf[sl] ? ` <span class="ip">${esc(ipOf[sl])}</span>` : ''}</td>${cells}<td class="n"><b>${t}</b></td>${allCell((all && all.slots || {})[sl])}</tr>`;
     }).join('');
     let wt = 0;
     const wcells = months.map(k => { const v = resetsIn(r, k).whole; wt += v; return cell(v); }).join('');
@@ -316,9 +330,9 @@ function renderCardResets(list) {
     return `<div class="site-resets">
       <h3>${esc(r.site)}</h3>
       <div class="table-wrap"><table>
-        <tr><th>Card</th>${months.map(k => `<th>${monthName(k)}</th>`).join('')}<th>6 months</th></tr>
-        ${rows || '<tr><td colspan="8" class="zero">No cards reported yet.</td></tr>'}
-        <tr class="whole"><td>Whole COM3000</td>${wcells}<td class="n"><b>${wt}</b></td></tr>
+        <tr><th>Card</th>${months.map(k => `<th>${monthName(k)}</th>`).join('')}<th>6 months</th><th>All time${all && all.since ? `<span class="since">since ${monthName(all.since)}</span>` : ''}</th></tr>
+        ${rows || '<tr><td colspan="9" class="zero">No cards reported yet.</td></tr>'}
+        <tr class="whole"><td>Whole COM3000</td>${wcells}<td class="n"><b>${wt}</b></td>${allCell(all && all.whole)}</tr>
       </table></div>
       ${known ? '' : '<div class="legend">Card-by-card counts appear after this location gets the newest com3000-monitor.ps1.</div>'}
     </div>`;
