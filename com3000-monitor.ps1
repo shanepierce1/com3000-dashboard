@@ -182,7 +182,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-12h'
+$ScriptVersion = '2026-11-12i'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -3490,11 +3490,13 @@ if ($Status) {
     # is the background monitor running? look at when it last wrote a check to monitor.log
     $last = $null
     if (Test-Path $LogFile) {
-        $hit = Get-Content $LogFile -Tail 300 | Where-Object { $_ -match '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)  (OK -|Check failed|Paused until|This PC is off the network|Internet )' } | Select-Object -Last 1
+        $hit = Get-Content $LogFile -Tail 300 | Where-Object { $_ -match '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)  (OK -|Check failed|Paused until|This PC is off the network|Internet |Check took over)' } | Select-Object -Last 1
         if ($hit) { $last = [datetime]::ParseExact($hit.Substring(0, 19), 'yyyy-MM-dd HH:mm:ss', $Inv) }
     }
     $offNet = $hit -and $hit -match '  (This PC is off the network|Internet )'
-    if ($offNet -and ((Get-Date) - $last).TotalMinutes -le ($IntervalMinutes * 2 + 1)) {
+    if ($hit -and $hit -match 'Check took over' -and ((Get-Date) - $last).TotalMinutes -le ($IntervalMinutes * 2 + 4)) {
+        Write-Host ("Monitor: ON, but its checks are getting stuck - last one at {0}: {1}" -f $last.ToString('h:mm tt'), $hit.Substring(21)) -ForegroundColor Yellow
+    } elseif ($offNet -and ((Get-Date) - $last).TotalMinutes -le ($IntervalMinutes * 2 + 1)) {
         Write-Host ("Monitor: ON, but this PC has NO INTERNET - last check {0}: {1}" -f $last.ToString('h:mm tt'), ($hit.Substring(21) -replace '\s+-\s+skipping.*$', '')) -ForegroundColor Yellow
     } elseif ($last -and ((Get-Date) - $last).TotalMinutes -le ($IntervalMinutes * 2 + 1)) {
         Write-Host ("Monitor: ON - last background check at {0}, every {1} min" -f $last.ToString('h:mm tt'), $IntervalMinutes) -ForegroundColor Green
@@ -3666,7 +3668,7 @@ if ("$AutoUpdate" -ne 'off' -and "$UpdateUrl" -match '^https://' -and -not $Read
     $lastUpd = [datetime]::MinValue; [void][datetime]::TryParse("$($state.updCheckAt)", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$lastUpd)
     if (((Get-Date) - $lastUpd).TotalMinutes -ge 60) {
         Set-Step 'checking for a newer version'
-        $state.updCheckAt = (Get-Date).ToString('o')
+        $state.updCheckAt = (Get-Date).ToString('o'); Save-State $state
         try {
             $rq = [System.Net.HttpWebRequest]::Create("$($UpdateUrl)?t=$([DateTime]::UtcNow.Ticks)")
             $rq.Timeout = 20000; $rq.ReadWriteTimeout = 20000; $rq.UserAgent = 'COM3000-monitor-update'
@@ -4311,11 +4313,14 @@ try {
         $lastEpgChk = [datetime]::MinValue; [void][datetime]::TryParse("$($state.epgCheckAt)", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$lastEpgChk)
         if (((Get-Date) - $lastEpgChk).TotalMinutes -ge 30) {
             Set-Step 'checking the EPG against the Overview'
-            $state.epgCheckAt = (Get-Date).ToString('o')
+            $state.epgCheckAt = (Get-Date).ToString('o'); Save-State $state      # saved now: if this gets stuck, it isn't retried every minute
+            $epgDeadline = (Get-Date).AddSeconds(90)
             try {
                 $epgHost = if ("$EpgIp".Trim()) { "$EpgIp".Trim() } else { Get-ComIp }
                 $bladeEpgs = @{}
                 foreach ($h in @(@($epgHost) + @(Get-ComHosts) | Where-Object { $_ } | Select-Object -Unique)) {
+                    if ((Get-Date) -gt $epgDeadline) { Write-Log 'EPG check: blades too slow - skipped the rest this time.'; break }
+                    if (-not (Test-HostPort $h)) { continue }
                     try { $bladeEpgs[$h] = Get-PageHtml "http://$h/cgi-bin/webcmd?screen=EpgDisplay" } catch {}
                 }
                 if ($bladeEpgs.ContainsKey($epgHost)) {
