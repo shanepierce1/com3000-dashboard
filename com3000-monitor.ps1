@@ -182,7 +182,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-12e'
+$ScriptVersion = '2026-11-12f'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -3501,7 +3501,13 @@ if ($Status) {
     }
     $rbTask = Get-ScheduledTask -TaskName $RebootTaskName -ErrorAction SilentlyContinue
     Write-Host "Daily EPG refresh: $(if ("$EpgRefreshTime" -match '^\d\d:\d\d$') { "$(([datetime]::ParseExact($EpgRefreshTime, 'HH:mm', $Inv)).ToString('h:mm tt', $Inv)) on $(if ("$EpgRefreshBlades".Trim()) { $EpgRefreshBlades } else { 'every blade that has an EPG' })" } else { 'off' })"
-    if ($rbTask) { Write-Host "Daily PC reboot: $(try { (Get-ScheduledTaskInfo -TaskName $RebootTaskName).NextRunTime.ToString('ddd h:mm tt') } catch { 'on' })" } else { Write-Host 'Daily PC reboot: off' }
+    # (this window isn't run as administrator, so Windows may hide the task from it - also ask schtasks and the settings)
+    if (-not $rbTask) { & schtasks.exe /Query /TN $RebootTaskName 2>$null | Out-Null; if ($LASTEXITCODE -eq 0) { $rbTask = $true } }
+    if ($rbTask) {
+        $rbNext = try { (Get-ScheduledTaskInfo -TaskName $RebootTaskName -ErrorAction Stop).NextRunTime.ToString('ddd h:mm tt') } catch { if ("$RebootTime" -match '^\d\d:\d\d$') { 'every day at ' + ([datetime]::ParseExact($RebootTime, 'HH:mm', $Inv)).ToString('h:mm tt', $Inv) } else { 'on' } }
+        Write-Host "Daily PC reboot: $rbNext"
+    } elseif ("$RebootTime" -match '^\d\d:\d\d$') { Write-Host "Daily PC reboot: every day at $(([datetime]::ParseExact($RebootTime, 'HH:mm', $Inv)).ToString('h:mm tt', $Inv))" }
+    else { Write-Host 'Daily PC reboot: off' }
     if ($BackupTime -eq 'off') { Write-Host 'Backups: off' }
     else {
         $lastFile = Get-ChildItem -Path $BackupDir -Filter '*COM3000 backup*.txt' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
