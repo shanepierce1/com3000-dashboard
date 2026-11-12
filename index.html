@@ -221,6 +221,8 @@ function monthKey(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).p
 function monthName(k) { const [y, m] = k.split('-'); return new Date(+y, +m - 1, 1).toLocaleString([], { month: 'short', year: 'numeric' }); }
 function resetsIn(r, k) { const x = (r.resets || {})[k] || {}; return { card: (x.ca || 0) + (x.ch || 0), whole: (x.wa || 0) + (x.wh || 0), x }; }
 
+// newest monitor version any location reports - older ones are flagged
+let newestVer = '';
 function renderSite(r) {
   const [label, c, cb] = siteState(r);
   const stale = label === 'Not reporting';
@@ -266,6 +268,7 @@ function renderSite(r) {
         <dt>Resets this month</dt><dd>${resetTxt}</dd>
         <dt>Recent resets</dt><dd>${lastTxt}</dd>
         <dt>Last backup</dt><dd>${r.backup ? esc(r.backup) : '—'}</dd>
+        <dt>Version</dt><dd${!r.ver || r.ver < newestVer ? ' class="warnc"' : ''}>${r.ver ? esc(r.ver) : 'older'}${!r.ver || r.ver < newestVer ? ' – update com3000-monitor.ps1' : ''}</dd>
         ${r.epgRef && r.epgRef.at ? `<dt>EPG refresh</dt><dd${r.epgRef.ok ? '' : ' class="warnc"'}>${r.epgRef.ok ? 'Refreshed' : 'Failed'} ${clock(Date.parse(r.epgRef.at) - (r.rx ? Date.parse(r.t) - r.rx : 0))}</dd>` : ''}
       </dl>
       ${removable ? `<div><button type="button" class="remove" data-site="${esc(r.site)}">Remove from dashboard</button></div>` : ''}
@@ -343,6 +346,7 @@ function renderCardResets(list) {
 
 function render(sites) {
   const list = Object.values(sites).sort((a, b) => siteState(a)[3] - siteState(b)[3] || a.site.localeCompare(b.site));
+  newestVer = list.reduce((m, r) => (r.ver && r.ver > m ? r.ver : m), '');
   if (!list.length) {
     $('sites').innerHTML = '<div class="empty">No location has reported yet. Each location PC starts sending reports a few minutes after the new com3000-monitor.ps1 is copied in.</div>';
   } else {
