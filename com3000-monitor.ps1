@@ -182,7 +182,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-12g'
+$ScriptVersion = '2026-11-12h'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -3490,10 +3490,13 @@ if ($Status) {
     # is the background monitor running? look at when it last wrote a check to monitor.log
     $last = $null
     if (Test-Path $LogFile) {
-        $hit = Get-Content $LogFile -Tail 300 | Where-Object { $_ -match '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)  (OK -|Check failed|Paused until)' } | Select-Object -Last 1
+        $hit = Get-Content $LogFile -Tail 300 | Where-Object { $_ -match '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)  (OK -|Check failed|Paused until|This PC is off the network|Internet )' } | Select-Object -Last 1
         if ($hit) { $last = [datetime]::ParseExact($hit.Substring(0, 19), 'yyyy-MM-dd HH:mm:ss', $Inv) }
     }
-    if ($last -and ((Get-Date) - $last).TotalMinutes -le ($IntervalMinutes * 2 + 1)) {
+    $offNet = $hit -and $hit -match '  (This PC is off the network|Internet )'
+    if ($offNet -and ((Get-Date) - $last).TotalMinutes -le ($IntervalMinutes * 2 + 1)) {
+        Write-Host ("Monitor: ON, but this PC has NO INTERNET - last check {0}: {1}" -f $last.ToString('h:mm tt'), ($hit.Substring(21) -replace '\s+-\s+skipping.*$', '')) -ForegroundColor Yellow
+    } elseif ($last -and ((Get-Date) - $last).TotalMinutes -le ($IntervalMinutes * 2 + 1)) {
         Write-Host ("Monitor: ON - last background check at {0}, every {1} min" -f $last.ToString('h:mm tt'), $IntervalMinutes) -ForegroundColor Green
     } elseif ($last) {
         Write-Host ("Monitor: OFF or not running - last background check was {0}" -f $last.ToString('MM/dd h:mm tt')) -ForegroundColor Red
