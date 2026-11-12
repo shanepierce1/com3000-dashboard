@@ -447,12 +447,20 @@ document.addEventListener('click', e => {
 });
 function lastAlert(site) { return alerts.find(a => a.site === site); }
 
+let lastFull = 0;
 async function load() {
   $('refresh').disabled = true;
   try {
-    const res = await fetch(`${SERVER}/${TOPIC}/json?poll=1&since=12h`, { cache: 'no-store' });
-    if (!res.ok) throw new Error('ntfy answered ' + res.status);
-    const text = await res.text();
+    // the last 12 hours is a big download with many locations - fetch it only now and then (for the
+    // alert history); every minute just fetch the last 30 minutes, which always has each site's newest report
+    const full = !lastFull || Date.now() - lastFull > 30 * 60000;
+    let text = '';
+    for (const since of (full ? ['12h', '30m'] : ['30m'])) {
+      const res = await fetch(`${SERVER}/${TOPIC}/json?poll=1&since=${since}`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('ntfy answered ' + res.status);
+      text += (await res.text()) + '\n';
+    }
+    if (full) lastFull = Date.now();
     for (const line of text.split('\n')) {
       if (!line.trim()) continue;
       let m, r;
