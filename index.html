@@ -205,6 +205,7 @@ function siteState(r) {
   if (r.page === 'paused') return ['Alerts paused', '--info', '--info-bg', 4];
   const down = (r.cards || []).filter(c => !c.up).length;
   if (down) return [down === 1 ? 'Card offline' : down + ' cards offline', '--bad', '--bad-bg', 1];
+  if (r.outN && r.lowN === r.outN) return [r.outN === 1 ? '1 low bitrate' : r.outN + ' low bitrate', '--warn', '--warn-bg', 2];
   if (r.outN) return [r.outN === 1 ? '1 channel out' : r.outN + ' channels out', '--warn', '--warn-bg', 2];
   return ['OK', '--ok', '--ok-bg', 5];
 }
@@ -233,7 +234,8 @@ function renderSite(r) {
   let out = '';
   if (!stale && r.outN) {
     const more = r.outN > (r.out || []).length ? `<li>…and ${r.outN - r.out.length} more</li>` : '';
-    out = `<div class="out">Channels out:<ul>${(r.out || []).map(o => `<li>${esc(o)}</li>`).join('')}${more}</ul></div>`;
+    const head = r.lowN === r.outN ? 'Low bitrate (often a blacked-out game):' : r.lowN ? 'Channels out / low bitrate:' : 'Channels out:';
+    out = `<div class="out">${head}<ul>${(r.out || []).map(o => `<li>${esc(o)}</li>`).join('')}${more}</ul></div>`;
   }
   const thisMonth = resetsIn(r, monthKey(new Date()));
   const resetTxt = thisMonth.card || thisMonth.whole
