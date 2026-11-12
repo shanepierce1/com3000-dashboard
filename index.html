@@ -131,6 +131,7 @@ ul.resets .when { color: var(--muted); }
 .alerts-tools select { width: 190px; }
 button.clear.armed { color: var(--bad); border-color: var(--bad); }
 .undo { font-size: 12px; color: var(--muted); padding: 6px 14px; border-bottom: 1px solid var(--line); display: flex; gap: 8px; align-items: center; }
+.eplist { font-size: 12px; color: var(--muted); font-weight: 400; }
 .since { display: block; font-size: 11px; font-weight: 400; color: var(--muted); font-family: inherit; text-transform: none; letter-spacing: 0; }
 @media (prefers-reduced-motion: no-preference) { .site { transition: border-color .2s; } }
 </style>
@@ -267,6 +268,7 @@ function renderSite(r) {
         ${r.watched ? `<dt>Watching</dt><dd>${r.watched} channels</dd>` : ''}
         <dt>Resets this month</dt><dd>${resetTxt}</dd>
         <dt>Recent resets</dt><dd>${lastTxt}</dd>
+        ${r.epgBad ? `<dt>EPG</dt><dd class="warnc" title="${esc(r.epgBadList)}">${r.epgBad} wrong – run Fix EPG${r.epgBadList ? `<br><span class="eplist">${esc(r.epgBadList)}${r.epgBad > 12 ? ', …' : ''}</span>` : ''}</dd>` : ''}
         <dt>Last backup</dt><dd>${r.backup ? esc(r.backup) : '—'}</dd>
         <dt>Version</dt><dd${!r.ver || r.ver < newestVer ? ' class="warnc"' : ''}>${r.ver ? esc(r.ver) : 'older'}${!r.ver || r.ver < newestVer ? ' – update com3000-monitor.ps1' : ''}</dd>
         ${r.epgRef && r.epgRef.at ? `<dt>EPG refresh</dt><dd${r.epgRef.ok ? '' : ' class="warnc"'}>${r.epgRef.ok ? 'Refreshed' : 'Failed'} ${clock(Date.parse(r.epgRef.at) - (r.rx ? Date.parse(r.t) - r.rx : 0))}</dd>` : ''}
