@@ -447,16 +447,20 @@ document.addEventListener('click', e => {
 });
 function lastAlert(site) { return alerts.find(a => a.site === site); }
 
-let lastFull = 0;
+let lastFull = 0, waitUntil = 0;
+let lastLoad = 0;
 async function load() {
+  lastLoad = Date.now();
   $('refresh').disabled = true;
   try {
     // the last 12 hours is a big download with many locations - fetch it only now and then (for the
     // alert history); every minute just fetch the last 30 minutes, which always has each site's newest report
-    const full = !lastFull || Date.now() - lastFull > 30 * 60000;
+    if (Date.now() < waitUntil) { render(sites); $('refresh').disabled = false; return; }      // ntfy asked us to slow down
+    const full = !lastFull || Date.now() - lastFull > 2 * 3600000;
     let text = '';
     for (const since of (full ? ['12h', '30m'] : ['30m'])) {
       const res = await fetch(`${SERVER}/${TOPIC}/json?poll=1&since=${since}`, { cache: 'no-store' });
+      if (res.status === 429) { waitUntil = Date.now() + 5 * 60000; throw new Error('ntfy is busy - too many requests from this network; trying again in 5 minutes'); }
       if (!res.ok) throw new Error('ntfy answered ' + res.status);
       text += (await res.text()) + '\n';
     }
@@ -483,9 +487,11 @@ async function load() {
     alerts = alerts.filter(a => a.rx >= weekAgo).sort((a, b) => b.rx - a.rx).slice(0, 400);
     saveAlerts();
     $('error').hidden = true;
-    $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' · refreshes every minute';
+    $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' · refreshes every 2 minutes';
   } catch (e) {
-    $('error').textContent = "Couldn't read the status reports (" + e.message + '). Showing the last ones this browser saw. Check this device\'s internet connection.';
+    $('error').textContent = /busy/.test(e.message)
+      ? 'ntfy (the free service the reports go through) asked this network to slow down. Showing the last reports this browser saw - it tries again in 5 minutes by itself.'
+      : "Couldn't read the status reports (" + e.message + '). Showing the last ones this browser saw. Check this device\'s internet connection.';
     $('error').hidden = false;
   }
   render(sites);
@@ -493,9 +499,9 @@ async function load() {
 }
 $('refresh').addEventListener('click', load);
 load();
-setInterval(load, 60000);
+setInterval(load, 120000);      // every 2 minutes (sites report every 15 minutes anyway)
 // phones pause pages in the background: refresh straight away when the page is opened again
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') load(); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - lastLoad > 60000) load(); });      // not more than once a minute
 </script>
 </body>
 </html>

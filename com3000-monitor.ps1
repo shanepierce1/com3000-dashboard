@@ -182,7 +182,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-12f'
+$ScriptVersion = '2026-11-12g'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -2650,7 +2650,8 @@ function Send-StatusReport($State, [hashtable]$Info) {
 # Every site reads the other sites' reports. If one has been silent 60+ minutes, the first
 # site (A-Z) that is still reporting sends one alert - so you hear about a dead PC/internet.
 function Test-QuietSites($State) {
-    $raw = Get-PageHtml "$NtfyServer/$(Get-StatusTopic)/json?poll=1&since=12h"
+    # only the last 2 hours: enough to see who went quiet (60 min), and a much smaller download than 12 hours
+    $raw = Get-PageHtml "$NtfyServer/$(Get-StatusTopic)/json?poll=1&since=2h"
     $lastBy = @{}; $offSite = @{}
     foreach ($line in ("$raw" -split "`n")) {
         if (-not $line.Trim()) { continue }
