@@ -182,7 +182,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-13b'
+$ScriptVersion = '2026-11-13d'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -2639,7 +2639,8 @@ function Send-StatusReport($State, [hashtable]$Info) {
         page = $Info.Page; via = $Info.Via; paused = $Info.Paused; err = $Info.Err
         cards = @($Info.Cards); outN = $out.Count; lowN = [int]$Info.Low; out = @($out | Select-Object -First 25)
         watched = $Info.Watched; backup = $State.lastBackup; ver = $ScriptVersion
-        epgBad = [int]$State.epgBad; epgBadList = "$($State.epgBadList)"
+        # (a card offline makes its EPG lines look wrong - don't show the EPG count until it's back)
+        epgBad = $(if ("$($Info.Page)" -ne 'ok' -or @($Info.Cards | Where-Object { -not $_.up }).Count) { 0 } else { [int]$State.epgBad }); epgBadList = "$($State.epgBadList)"
         epgRef = $(if ("$EpgRefreshTime" -match '^\d\d:\d\d$' -and $State.epgRefAt) { [ordered]@{ at = $State.epgRefAt; ok = ($State.epgRefOk -eq 'ok') } } else { $null })
         resets = $sum.Months; recent = $sum.Recent; slotResets = $sum.BySlot; slotMonths = $sum.BySlotMonth; allRes = $sum.All
         alerts = $recentAlerts
@@ -3746,6 +3747,7 @@ function Invoke-DeviceChecks($s, [switch]$Defer) {
         $keys[$key] = $true
         $name = "$($devices[$ip]) ($ip)"
         $up   = Test-Card $ip
+        if (-not $up) { Start-Sleep -Milliseconds 1500; $up = Test-Card $ip }      # a busy card can miss one try
         $script:CardUp[$ip] = $up
         if ($Test) {
             Write-Host ("  {0,-30} {1}" -f $name, $(if ($up) { 'online' } else { 'NOT RESPONDING' })) -ForegroundColor $(if ($up) { 'Gray' } else { 'Red' })
@@ -4015,6 +4017,7 @@ foreach ($ip in $state.devices.Keys) { if ($state.devices[$ip] -match '^Card slo
 $onPage = @{}; foreach ($sl in $data.Slots) { $onPage["$($sl.Slot)"] = $true }
 function Test-SlotDown([string]$Sl) {
     $ip = $slotIp[$Sl]
+    if ($ip -and "$($script:ComHostNow)" -replace ':\d+$', '' -eq $ip) { return $false }      # it just served us the Overview page - it's up
     if ($ip -and $script:CardUp.ContainsKey($ip) -and -not $script:CardUp[$ip]) { return $true }
     return ($ip -and -not $onPage.ContainsKey($Sl))
 }

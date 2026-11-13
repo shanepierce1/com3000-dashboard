@@ -271,7 +271,7 @@ function renderSite(r) {
         ${r.watched ? `<dt>Watching</dt><dd>${r.watched} channels</dd>` : ''}
         <dt>Resets this month</dt><dd>${resetTxt}</dd>
         <dt>Recent resets</dt><dd>${lastTxt}</dd>
-        ${r.epgBad ? `<dt>EPG</dt><dd class="warnc" title="${esc(r.epgBadList)}">${r.epgBad} wrong – run Fix EPG${r.epgBadList ? `<br><span class="eplist">${esc(r.epgBadList)}${r.epgBad > 12 ? ', …' : ''}</span>` : ''}</dd>` : ''}
+        ${r.epgBad && r.page !== 'down' && !(r.cards || []).some(c => !c.up) ? `<dt>EPG</dt><dd class="warnc" title="${esc(r.epgBadList)}">${r.epgBad} wrong – run Fix EPG${r.epgBadList ? `<br><span class="eplist">${esc(r.epgBadList)}${r.epgBad > 12 ? ', …' : ''}</span>` : ''}</dd>` : ''}
         <dt>Last backup</dt><dd>${r.backup ? esc(r.backup) : '—'}</dd>
         <dt>Version</dt><dd${!r.ver || r.ver < newestVer ? ' class="warnc"' : ''}>${r.ver ? esc(r.ver) : 'older'}${!r.ver || r.ver < newestVer ? ' – update com3000-monitor.ps1' : ''}</dd>
         ${r.epgRef && r.epgRef.at ? `<dt>EPG refresh</dt><dd${r.epgRef.ok ? '' : ' class="warnc"'}>${r.epgRef.ok ? 'Refreshed' : 'Failed'} ${clock(Date.parse(r.epgRef.at) - (r.rx ? Date.parse(r.t) - r.rx : 0))}</dd>` : ''}
@@ -430,7 +430,7 @@ function renderAlerts() {
     // color by what it's about: something down (or being reset because it's down) = red, something back = gray
     const tt = String(a.title || '');
     if (/\b(back|cleared|reporting again|installed|test)\b/i.test(tt)) c = '--idle';
-    else if (/(offline|still down|unreachable|reset sent|did not help|reset failed|card error|stopped reporting|missing|removed)/i.test(tt)) c = '--bad';
+    else if (/(offline|still down|unreachable|reset sent|reset skipped|did not help|reset failed|not back after|card error|stopped reporting|missing|removed)/i.test(tt)) c = '--bad';
     const msg = String(a.msg || '');
     return `<div class="alert" style="--c:var(${c})">
       <div class="when">${when(a.rx)}</div>
