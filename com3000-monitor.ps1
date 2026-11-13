@@ -182,7 +182,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-13d'
+$ScriptVersion = '2026-11-13c'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -2640,7 +2640,7 @@ function Send-StatusReport($State, [hashtable]$Info) {
         cards = @($Info.Cards); outN = $out.Count; lowN = [int]$Info.Low; out = @($out | Select-Object -First 25)
         watched = $Info.Watched; backup = $State.lastBackup; ver = $ScriptVersion
         # (a card offline makes its EPG lines look wrong - don't show the EPG count until it's back)
-        epgBad = $(if ("$($Info.Page)" -ne 'ok' -or @($Info.Cards | Where-Object { -not $_.up }).Count) { 0 } else { [int]$State.epgBad }); epgBadList = "$($State.epgBadList)"
+        epgBad = $(if (@($Info.Cards | Where-Object { -not $_.up }).Count) { 0 } else { [int]$State.epgBad }); epgBadList = "$($State.epgBadList)"
         epgRef = $(if ("$EpgRefreshTime" -match '^\d\d:\d\d$' -and $State.epgRefAt) { [ordered]@{ at = $State.epgRefAt; ok = ($State.epgRefOk -eq 'ok') } } else { $null })
         resets = $sum.Months; recent = $sum.Recent; slotResets = $sum.BySlot; slotMonths = $sum.BySlotMonth; allRes = $sum.All
         alerts = $recentAlerts
