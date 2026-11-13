@@ -182,7 +182,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-12i'
+$ScriptVersion = '2026-11-12j'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -1630,7 +1630,11 @@ function Set-PickerBladeChecks($Channels, [string]$OverviewHtml, [hashtable]$Bla
             } elseif (-not $l) { [void]$why.Add("EPG on $ip lists DIRECTV $($e.Maj) but no tuner sends it")
             } elseif ($l.NoChannel) { [void]$why.Add("EPG on $ip says DIRECTV $($e.Maj) but the tuner has no channel (None)")
             } elseif ("$($l.Major)" -ne $e.Maj -or ($e.Min -ne '65535' -and "$($l.Minor)" -and "$($l.Minor)" -ne $e.Min)) {
-                [void]$why.Add("EPG on $ip says DIRECTV $($e.Maj), Overview tuner $($l.Slot)-$($l.Tuner) is on $($l.Major)")
+                # same number but a different sub-channel (e.g. a game's alternate feed 652-1650): show both parts
+                $minDiff = "$($l.Major)" -eq $e.Maj
+                $eTxt = if ($minDiff) { "$($e.Maj)-$($e.Min)" } else { "$($e.Maj)" }
+                $lTxt = if ($minDiff) { "$($l.Major)-$($l.Minor)" } else { "$($l.Major)" }
+                [void]$why.Add("EPG on $ip says DIRECTV $eTxt, Overview tuner $($l.Slot)-$($l.Tuner) is on $lTxt")
             }
         }
         if ($why.Count) {
@@ -1649,8 +1653,8 @@ function Get-GuideShort([string]$Why) {
     $parts = foreach ($w in ($Why -split '; ')) {
         $ips = @([regex]::Matches($w, '\d+\.\d+\.\d+\.(\d+)') | ForEach-Object { '.' + $_.Groups[1].Value }) -join '+'
         $who = if ($ips) { "$($ips): " } else { '' }
-        if ($w -match 'says DIRECTV (\d+), Overview tuner \S+ is on (\d+)') { "$($who)EPG $($Matches[1]), tuner $($Matches[2])" }
-        elseif ($w -match '^EPG says DIRECTV (\d+), Overview tuner \S+ is on (\d+)') { "EPG $($Matches[1]), tuner $($Matches[2])" }
+        if ($w -match 'says DIRECTV (\d+(?:-\d+)?), Overview tuner \S+ is on (\d+(?:-\d+)?)') { "$($who)EPG $($Matches[1]), tuner $($Matches[2])" }
+        elseif ($w -match '^EPG says (?:DIRECTV )?(\d+(?:-\d+)?), Overview tuner \S+ is on (\d+(?:-\d+)?)') { "EPG $($Matches[1]), tuner $($Matches[2])" }
         elseif ($w -match 'missing from the EPG') { "$($who)missing from EPG" }
         elseif ($w -match 'lists DIRECTV (\d+) but no tuner') { "$($who)EPG $($Matches[1]), no tuner" }
         elseif ($w -match 'says DIRECTV (\d+) but the tuner has no channel') { "$($who)EPG $($Matches[1]), tuner None" }
