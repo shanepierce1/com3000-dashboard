@@ -206,9 +206,9 @@ function siteState(r) {
   const age = (Date.now() - rxTime(r)) / 60000;
   if (age > STALE_MIN) return ['Not reporting', '--idle', '--idle-bg', 0];
   if (r.page === 'down') return ['COM3000 unreachable', '--bad', '--bad-bg', 1];
-  if (r.page === 'paused') return ['Alerts paused', '--info', '--info-bg', 4];
   const down = (r.cards || []).filter(c => !c.up).length;
-  if (down) return [down === 1 ? 'Card offline' : down + ' cards offline', '--bad', '--bad-bg', 1];
+  if (down) return [(down === 1 ? 'Card offline' : down + ' cards offline') + (r.page === 'paused' ? ' · alerts paused' : ''), '--bad', '--bad-bg', 1];
+  if (r.page === 'paused') return ['Alerts paused', '--info', '--info-bg', 4];
   if (r.outN && r.lowN === r.outN) return [r.outN === 1 ? '1 low bitrate' : r.outN + ' low bitrate', '--warn', '--warn-bg', 2];
   if (r.outN) return [r.outN === 1 ? '1 channel problem' : r.outN + ' channel problems', '--warn', '--warn-bg', 2];
   return ['OK', '--ok', '--ok-bg', 5];
@@ -426,7 +426,11 @@ function renderAlerts() {
   if (!list.length) { $('alerts').innerHTML = undo + `<div class="empty-row">No alerts${pick ? ' for ' + esc(pick) : ''} right now. New ones will show up here.</div>`; return; }
   const shown = showAll ? list : list.slice(0, 25);
   $('alerts').innerHTML = undo + shown.map(a => {
-    const [lvl, c] = LEVEL[a.prio] || LEVEL.default;
+    let [lvl, c] = LEVEL[a.prio] || LEVEL.default;
+    // color by what it's about: something down (or being reset because it's down) = red, something back = gray
+    const tt = String(a.title || '');
+    if (/\b(back|cleared|reporting again|installed|test)\b/i.test(tt)) c = '--idle';
+    else if (/(offline|still down|unreachable|reset sent|did not help|reset failed|card error|stopped reporting|missing|removed)/i.test(tt)) c = '--bad';
     const msg = String(a.msg || '');
     return `<div class="alert" style="--c:var(${c})">
       <div class="when">${when(a.rx)}</div>
@@ -483,7 +487,13 @@ async function load() {
       }
       if (hidden[r.site]) { if (rxTime(r) <= hidden[r.site]) continue; delete hidden[r.site]; saveHidden(hidden); }   // removed, unless it reported since
       const old = sites[r.site];
-      if (!old || rxTime(r) >= rxTime(old)) sites[r.site] = r;
+      if (!old || rxTime(r) >= rxTime(old)) {
+        // a 'paused' report (e.g. right after a reset) has no card list - keep the last one we saw
+        if (r.page === 'paused' && !(r.cards || []).length && old && (old.cards || []).length) {
+          r.cards = old.cards; r.outN = old.outN; r.lowN = old.lowN; r.out = old.out; r.watched = old.watched;
+        }
+        sites[r.site] = r;
+      }
     }
     save(sites);
     const weekAgo = Date.now() - 7 * 86400000;

@@ -182,7 +182,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-13'
+$ScriptVersion = '2026-11-13b'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -4319,7 +4319,8 @@ try {
     # ---- EPG check for the dashboard (every 30 min): which channels the EPG has wrong - no phone alert ----
     if (-not $Test) {
         $lastEpgChk = [datetime]::MinValue; [void][datetime]::TryParse("$($state.epgCheckAt)", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$lastEpgChk)
-        if (((Get-Date) - $lastEpgChk).TotalMinutes -ge 30) {
+        # not while a card is offline: its tuners are missing from the Overview, so their EPG lines would all look wrong
+        if (((Get-Date) - $lastEpgChk).TotalMinutes -ge 30 -and -not $anyCardDown -and -not $script:CardDownNew.Count) {
             Set-Step 'checking the EPG against the Overview'
             $state.epgCheckAt = (Get-Date).ToString('o'); Save-State $state      # saved now: if this gets stuck, it isn't retried every minute
             $epgDeadline = (Get-Date).AddSeconds(90)
