@@ -39,7 +39,8 @@ param(
     [switch]$RefreshEpg,
     [switch]$OpenBlades,
     [switch]$ShowIp,
-    [switch]$SetWallpaper
+    [switch]$SetWallpaper,
+    [switch]$ReportNow
 )
 
 # ======================== SETTINGS ========================
@@ -182,7 +183,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-13c'
+$ScriptVersion = '2026-11-13e'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -2640,7 +2641,7 @@ function Send-StatusReport($State, [hashtable]$Info) {
         cards = @($Info.Cards); outN = $out.Count; lowN = [int]$Info.Low; out = @($out | Select-Object -First 25)
         watched = $Info.Watched; backup = $State.lastBackup; ver = $ScriptVersion
         # (a card offline makes its EPG lines look wrong - don't show the EPG count until it's back)
-        epgBad = $(if (@($Info.Cards | Where-Object { -not $_.up }).Count) { 0 } else { [int]$State.epgBad }); epgBadList = "$($State.epgBadList)"
+        epgBad = $(if ("$($Info.Page)" -ne 'ok' -or @($Info.Cards | Where-Object { -not $_.up }).Count) { 0 } else { [int]$State.epgBad }); epgBadList = "$($State.epgBadList)"
         epgRef = $(if ("$EpgRefreshTime" -match '^\d\d:\d\d$' -and $State.epgRefAt) { [ordered]@{ at = $State.epgRefAt; ok = ($State.epgRefOk -eq 'ok') } } else { $null })
         resets = $sum.Months; recent = $sum.Recent; slotResets = $sum.BySlot; slotMonths = $sum.BySlotMonth; allRes = $sum.All
         alerts = $recentAlerts
@@ -3558,6 +3559,27 @@ if ($ClearResets) {
     } catch {
         Write-Host "Could not clear the reset history: $(Get-CleanError $_)" -ForegroundColor Red
         Write-Host 'Use the Clear Test Resets button, which asks for administrator permission.' -ForegroundColor Red
+    }
+    return
+}
+
+# ---- Update dashboard now (button: "Update dashboard now") ----
+if ($ReportNow) {
+    try {
+        $st = Load-State; $st.statusSig = ''; Save-State $st      # forces a fresh report on this check
+        $ran = $false
+        try { Start-ScheduledTask -TaskName $TaskName -ErrorAction Stop; $ran = $true } catch {
+            & schtasks.exe /Run /TN $TaskName 2>&1 | Out-Null; $ran = ($LASTEXITCODE -eq 0) }
+        if ($ran) {
+            Write-Log 'Dashboard update requested by hand'
+            Write-Host "Sending $SiteName's status to the dashboard now." -ForegroundColor Green
+            Write-Host '  - It arrives in about 1 minute (the check takes 20-60 seconds).'
+            Write-Host '  - On the dashboard, press F5 (or click away and back) to see it right away.'
+        } else {
+            Write-Host 'Could not start the monitor right now. It will still report on its next check (within 1 minute).' -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "Could not update the dashboard: $(Get-CleanError $_)" -ForegroundColor Red
     }
     return
 }
