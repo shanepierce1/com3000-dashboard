@@ -12,9 +12,9 @@
 :root {
   --bg: #f3f5f7; --panel: #ffffff; --line: #dde2e8; --fg: #1b2530; --muted: #5d6b7a;
   --accent: #1f5f8b;
-  --ok: #1e7a46; --ok-bg: #e3f3e9; --warn: #8a6100; --warn-bg: #fff4c2;
+  --ok: #2c3a48; --ok-bg: #e6eaee; --warn: #6b3fa0; --warn-bg: #efe6fa;
   --bad: #b3261e; --bad-bg: #fbe4e2; --idle: #5d6b7a; --idle-bg: #e8ecf0; --info: #1f5f8b; --info-bg: #e2eef7;
-  --dot-ok: #1f9d55; --dot-warn: #f5c400; --dot-bad: #e02424; --dot-idle: #8a96a3;
+  --dot-ok: #3d4a57; --dot-warn: #7b4fc4; --dot-bad: #e02424; --dot-idle: #8a96a3;
   --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
   color-scheme: light;
@@ -23,8 +23,8 @@
   :root {
     --bg: #0f151b; --panel: #172029; --line: #26323e; --fg: #e4eaf0; --muted: #93a2b2;
     --accent: #6fb3e0;
-    --ok: #6fd39b; --ok-bg: #143323; --warn: #ffd43b; --warn-bg: #3a3210; --bad: #ff8a80; --bad-bg: #3d1916;
-    --dot-ok: #34c374; --dot-warn: #ffd43b; --dot-bad: #ff5a4f; --dot-idle: #6b7785;
+    --ok: #e4eaf0; --ok-bg: #2a3540; --warn: #c9a2ff; --warn-bg: #2a1a3d; --bad: #ff8a80; --bad-bg: #3d1916;
+    --dot-ok: #c6d0da; --dot-warn: #b48cf5; --dot-bad: #ff5a4f; --dot-idle: #6b7785;
     --idle: #93a2b2; --idle-bg: #222c36; --info: #6fb3e0; --info-bg: #142a3a;
     color-scheme: dark;
   }
@@ -55,7 +55,7 @@ button.remove.armed { color: var(--bad); border-color: var(--bad); }
 .ico { width: 20px; height: 20px; border-radius: 50%; display: inline-grid; place-items: center; flex: none;
   font: 700 12px/1 var(--sans); color: #fff; }
 .ico.ok { background: var(--dot-ok); }
-.ico.warn { background: var(--dot-warn); color: #3a2a00; border-radius: 0; width: 22px; padding-top: 5px; font-size: 11px;
+.ico.warn { background: var(--dot-warn); color: #fff; border-radius: 0; width: 22px; padding-top: 5px; font-size: 11px;
   clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 .ico.bad { border-radius: 4px; }
 .ico.bad { background: var(--dot-bad); }
@@ -65,6 +65,9 @@ button.remove.armed { color: var(--bad); border-color: var(--bad); }
 .site { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; align-content: start; min-width: 0; }
 .site-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px 8px; border-top: 4px solid var(--c); }
 .site-name { font-size: 17px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.pill.lvl-bad { background: var(--bad); color: #fff; }
+.site-top.lvl-bad { border-top-width: 8px; }
+.site-top.lvl-warn { border-top-style: dashed; }
 .pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; color: var(--c); background: var(--cb); white-space: nowrap; }
 .site-body { padding: 0 14px 12px; display: grid; gap: 10px; min-width: 0; }
 .cards { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -256,7 +259,7 @@ function renderSite(r) {
   else if (r.page === 'paused') extra = `<div class="note">Alerts paused until ${clock(Date.parse(r.paused))}.</div>`;
   else if (r.via) extra = `<div class="note">Main card not answering. Reading the COM3000 from card ${esc(r.via)}.</div>`;
   return `<article class="site" style="--c:var(${c});--cb:var(${cb})">
-    <div class="site-top"><span class="site-name">${esc(r.site)}</span><span class="pill">${label}</span></div>
+    <div class="site-top lvl-${c.slice(2)}"><span class="site-name">${esc(r.site)}</span><span class="pill lvl-${c.slice(2)}">${({'--ok':'✓ ','--warn':'▲ ','--bad':'✕ ','--idle':'– ','--info':'Ⅱ '}[c] || '')}${label}</span></div>
     <div class="site-body">
       ${extra}
       ${!removable && cards ? `<div class="cards">${cards}</div>` : ''}

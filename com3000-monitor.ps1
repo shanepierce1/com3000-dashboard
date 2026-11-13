@@ -182,7 +182,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-12j'
+$ScriptVersion = '2026-11-13'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -2419,7 +2419,8 @@ function Show-ChannelPicker {
         $rb = if ($f.WindowState -eq 'Normal') { $f.Bounds } else { $f.RestoreBounds }
         $st.Prefs.Bounds = "$($rb.X),$($rb.Y),$($rb.Width),$($rb.Height)"; & $savePrefs
         if (-not $st.Updating -and $st.Channels.Count -gt 0) { Save-PickerCheck $st.Channels }   # never wipe saved marks if the line-up didn't load
-        if ($st.TunedAt -and $st.Prefs.Tuner) { try { [void](Invoke-PickerRelease $st.Prefs.Tuner) } catch {} }   # put the spare tuner back to idle
+        # putting the spare tuner back to idle talks to the COM3000 (can take a while) - done AFTER the window is gone
+        $st.NeedRelease = [bool]($st.TunedAt -and $st.Prefs.Tuner)
     })
     # ---------- loading: both COM3000 pages at once, in the background ----------
     $loadTimer = New-Object System.Windows.Forms.Timer; $loadTimer.Interval = 200
@@ -2508,10 +2509,13 @@ function Show-ChannelPicker {
 
     & $savePrefs
     [void]$f.ShowDialog()
+    try { $f.Dispose() } catch {}
+    if ($st.NeedRelease) { try { [void](Invoke-PickerRelease $st.Prefs.Tuner) } catch {} }      # window already closed - nobody waits on this
 }
 
 # ---------------- Channel check window (the "Channel Check" button) ----------------
-if ($Picker) { Show-ChannelPicker; return }
+# (exit straight away afterwards, so background downloads still running can't hold the program open)
+if ($Picker) { Show-ChannelPicker; [Environment]::Exit(0) }
 
 
 # Password for the backend switch is encrypted with Windows DPAPI, machine scope: only programs on
