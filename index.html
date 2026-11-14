@@ -176,7 +176,7 @@ button.clear.armed { color: var(--bad); border-color: var(--bad); }
 </div>
 <script>
 // Change this whenever a new index.html goes on GitHub: open copies of the old page see it and reload themselves.
-const PAGE_VER = '2026-11-13g';
+const PAGE_VER = '2026-11-13h';
 // ---- Settings ----------------------------------------------------------
 // The ntfy topic the site PCs send status reports to: your alerts topic + "-status".
 const TOPIC = 'com3000-alerts-x7q4m2-status';
@@ -404,7 +404,21 @@ function addAlert(site, t, title, msg, prio, rx) {
 const CLEAR_KEY = 'com3000-dashboard-cleared';
 let cleared = (() => { try { return JSON.parse(localStorage.getItem(CLEAR_KEY) || '{}') || {}; } catch (e) { return {}; } })();
 let undoCleared = null;
-function saveCleared() { try { localStorage.setItem(CLEAR_KEY, JSON.stringify(cleared)); } catch (e) {} }
+function saveCleared() { try { localStorage.setItem(CLEAR_KEY, JSON.stringify(cleared)); localStorage.setItem(CLEAR_KEY + '-at', String(clearedAt)); } catch (e) {} }
+// Clearing is shared: Clear and Undo are posted to ntfy, and every dashboard (phones, computers) follows the newest one.
+// The site PCs pass the newest one along in their reports, so a phone that was closed for days still gets it.
+let clearedAt = (() => { try { return +localStorage.getItem(CLEAR_KEY + '-at') || 0; } catch (e) { return 0; } })();      // ntfy time (seconds)
+function adoptCleared(map, at) {
+  if (!map || typeof map !== 'object' || !(at > clearedAt)) return false;
+  cleared = {}; for (const k in map) if (+map[k] > 0) cleared[k] = +map[k];
+  clearedAt = at; saveCleared(); return true;
+}
+async function shareCleared() {
+  try {
+    const res = await fetch(`${SERVER}/${TOPIC}`, { method: 'POST', body: JSON.stringify({ kind: 'clear', t: new Date().toISOString(), map: cleared }), headers: { Title: 'dashboard clear', Priority: 'min' } });
+    const j = await res.json(); if (j && j.time) { clearedAt = Math.max(clearedAt, j.time); saveCleared(); }
+  } catch (e) {}
+}
 function isCleared(a) { return a.rx <= Math.max(cleared['*'] || 0, cleared[a.site] || 0); }
 function saveAlerts() { try { localStorage.setItem(ALERT_KEY, JSON.stringify(alerts)); } catch (e) {} }
 const LEVEL = { urgent: ['Urgent', '--bad'], max: ['Urgent', '--bad'], high: ['High', '--warn'], default: ['Normal', '--idle'], low: ['Quiet', '--idle'], min: ['Quiet', '--idle'] };
@@ -448,10 +462,10 @@ document.addEventListener('click', e => {
     const b = e.target;
     if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.classList.add('armed'); b.textContent = 'Sure?'; return; }
     undoCleared = JSON.parse(JSON.stringify(cleared));
-    cleared[$('alertSite').value || '*'] = Date.now(); saveCleared(); showAll = false; renderAlerts();
+    cleared[$('alertSite').value || '*'] = Date.now(); saveCleared(); showAll = false; renderAlerts(); shareCleared();
     clearTimeout(window.undoTimer); window.undoTimer = setTimeout(() => { undoCleared = null; renderAlerts(); }, 30000);
   }
-  if (e.target.id === 'undoClear') { cleared = undoCleared || {}; undoCleared = null; saveCleared(); renderAlerts(); }
+  if (e.target.id === 'undoClear') { cleared = undoCleared || {}; undoCleared = null; saveCleared(); renderAlerts(); shareCleared(); }
   const m = e.target.closest('.msg.clip'); if (m) m.classList.remove('clip');
 });
 function lastAlert(site) { return alerts.find(a => a.site === site); }
@@ -478,7 +492,9 @@ async function load() {
       if (!line.trim()) continue;
       let m, r;
       try { m = JSON.parse(line); if (m.event !== 'message') continue; r = JSON.parse(m.message); } catch (e) { continue; }
+      if (r && r.kind === 'clear') { adoptCleared(r.map, m.time); continue; }      // Clear/Undo pressed on another device
       if (!r || !r.site || !r.t) continue;
+      if (r.clr) { try { const c = JSON.parse(r.clr); adoptCleared(c.map, +c.at); } catch (e) {} }
       // use the time ntfy received the report, not the site PC's own clock (which can be wrong)
       if (m.time) r.rx = m.time * 1000;
       if (r.kind === 'alert') { addAlert(r.site, r.t, r.title, r.msg, r.prio, r.rx || Date.parse(r.t)); continue; }
