@@ -35,12 +35,7 @@ param(
     [switch]$Picker,
     [switch]$ResetCard,
     [switch]$ClearResets,
-    [switch]$MakeEpg,
-    [switch]$RefreshEpg,
-    [switch]$OpenBlades,
-    [switch]$ShowIp,
-    [switch]$SetWallpaper,
-    [switch]$ReportNow
+    [switch]$MakeEpg
 )
 
 # ======================== SETTINGS ========================
@@ -61,17 +56,6 @@ $MinMbps         = 0.5
 # How long something must stay down before you're alerted, in minutes.
 # A COM reboot or card reset that comes back within this time won't alert.
 $MinutesBeforeAlert = 10
-# Only a few channels out (a channel or two dipping low for a while): no phone alert unless at least
-# this many are out at once ... or one of them stays out this many minutes (0 = never alert for just a few).
-$MinChannelsOut     = 3
-$FewChannelsMinutes = 180      # 3 hours - a blacked-out game shouldn't set off every phone
-# Rain fade: channels dropping on 3+ cards at once while the cards are fine = weak satellite signal.
-# No phone alerts (and no card resets) for that - unless it goes on this many hours (0 = never alert).
-$RainFadeHours      = 3
-# Self-update: about once an hour, fetch the newest com3000-monitor.ps1 from the dashboard's GitHub page
-# and swap it in if it's a NEWER version (checked for errors first; the old copy is kept). 'off' to stop.
-$AutoUpdate         = 'on'
-$UpdateUrl          = 'https://shanepierce1.github.io/com3000-dashboard/com3000-monitor.ps1'
 
 # How many good checks in a row before something counts as "back" (stops a flickering
 # card or a storm from sending out/back/out/back over and over)
@@ -131,20 +115,6 @@ $BackupTime      = '03:00'
 
 # DAILY PC REBOOT: restart this PC once a day at this time (24-hour HH:mm, e.g. '04:30'), or 'off'.
 $RebootTime      = 'off'
-# When this PC loses the internet, try to fix it itself: restart the network connection, then renew
-# its address, then restart the PC (at most twice a day).
-$NetRepair       = 'on'
-# Plain desktop background with the location name, so the desktop icons are easy to see ('blue', 'gray' or 'off')
-$Wallpaper       = 'blue'
-# Other pages the 'COM3000 Blades' icon opens after the blades, e.g. a streamer: '192.168.3.200' (comma-separated, or blank)
-$ExtraTabs       = ''
-
-# DAILY EPG REFRESH: every morning re-submit each blade's EPG page exactly as it is (same list,
-# same checkboxes) - like pressing Submit - so AEP boxes reload the guide. 24-hour HH:mm or 'off'.
-# Phone alert only if it fails.
-$EpgRefreshTime   = 'off'
-# Which blades (IP addresses, comma-separated). Blank = every blade that has an EPG list.
-$EpgRefreshBlades = ''
 # IP address of the EPG page, if it isn't on the COM3000 itself ('' = same as the COM3000)
 $EpgIp           = ''
 # Google Drive folder. 'auto' = My Drive\COM3000 Backups\<location name>
@@ -181,9 +151,6 @@ $ScriptDir = Split-Path -Parent $PSCommandPath
 $StateFile = Join-Path $ScriptDir 'monitor-state.json'
 $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
-# Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
-# so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-13e'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -362,11 +329,11 @@ function Get-ChannelLabel($c) {
 }
 
 function Load-State {
-    $s = @{ counts = @{}; alerted = @{}; lastSent = @{}; labels = @{}; names = @{}; devices = @{}; missing = @{}; good = @{}; slotOf = @{}; pending = @{}; nvSince = @{}; resetDay = @{}; resetAt = @{}; gnSince = @{}; sysResetDay = ''; sysResetAt = ''; sysResetSlots = ''; sysSkipDay = ''; pdSince = ''; statusSig = ''; statusAt = ''; quiet = @{}; held = @{}; rainSince = ''; rainLast = ''; rainAlerted = ''; updCheckAt = ''; epgBad = 0; epgBadList = ''; epgCheckAt = ''; epgRefDay = ''; epgRefFails = 0; epgRefNext = ''; epgRefAt = ''; epgRefOk = ''; lastBackup = ''; netDown = ''; netCycle = ''; netCut = ''; netBootOk = ''; netStep = 0; netStepAt = ''; netReboot = ''; netTried = ''; backupFails = 0; backupAlerted = ''; failCount = 0; failAlerted = $false }
+    $s = @{ counts = @{}; alerted = @{}; lastSent = @{}; labels = @{}; names = @{}; devices = @{}; missing = @{}; good = @{}; slotOf = @{}; pending = @{}; nvSince = @{}; resetDay = @{}; resetAt = @{}; gnSince = @{}; sysResetDay = ''; sysResetAt = ''; sysResetSlots = ''; sysSkipDay = ''; pdSince = ''; statusSig = ''; statusAt = ''; quiet = @{}; lastBackup = ''; backupFails = 0; backupAlerted = ''; failCount = 0; failAlerted = $false }
     if (Test-Path $StateFile) {
         try {
             $j = Get-Content $StateFile -Raw | ConvertFrom-Json
-            foreach ($n in 'counts', 'alerted', 'lastSent', 'labels', 'names', 'devices', 'missing', 'good', 'slotOf', 'pending', 'nvSince', 'resetDay', 'resetAt', 'gnSince', 'quiet', 'held') {
+            foreach ($n in 'counts', 'alerted', 'lastSent', 'labels', 'names', 'devices', 'missing', 'good', 'slotOf', 'pending', 'nvSince', 'resetDay', 'resetAt', 'gnSince', 'quiet') {
                 if ($j.$n) { $j.$n.PSObject.Properties | ForEach-Object { $s[$n][$_.Name] = $(if ($n -eq 'counts' -or $n -eq 'good') { [int]$_.Value } else { [string]$_.Value }) } }
             }
             $s.sysResetDay   = [string]$j.sysResetDay
@@ -377,27 +344,7 @@ function Load-State {
             $s.statusSig     = [string]$j.statusSig
             $s.statusAt      = [string]$j.statusAt
             $s.lastBackup    = [string]$j.lastBackup
-            $s.epgRefDay     = [string]$j.epgRefDay
-            $s.epgRefFails   = [int]$j.epgRefFails
-            $s.epgRefNext    = [string]$j.epgRefNext
-            $s.epgRefAt      = [string]$j.epgRefAt
-            $s.epgRefOk      = [string]$j.epgRefOk
             $s.backupFails   = [int]$j.backupFails
-            $s.netDown       = [string]$j.netDown
-            $s.netCycle      = [string]$j.netCycle
-            $s.netBootOk     = [string]$j.netBootOk
-            $s.netCut        = [string]$j.netCut
-            $s.rainSince     = [string]$j.rainSince
-            $s.rainLast      = [string]$j.rainLast
-            $s.rainAlerted   = [string]$j.rainAlerted
-            $s.epgBad        = [int]$j.epgBad
-            $s.updCheckAt    = [string]$j.updCheckAt
-            $s.epgBadList    = [string]$j.epgBadList
-            $s.epgCheckAt    = [string]$j.epgCheckAt
-            $s.netStep       = [int]$j.netStep
-            $s.netStepAt     = [string]$j.netStepAt
-            $s.netReboot     = [string]$j.netReboot
-            $s.netTried      = [string]$j.netTried
             $s.backupAlerted = [string]$j.backupAlerted
             $s.failCount   = [int]$j.failCount
             $s.failAlerted = [bool]$j.failAlerted
@@ -471,7 +418,7 @@ function Update-Item($s, [string]$Key, [bool]$IsDown, [string]$Label) {
 }
 
 function Clear-Item($s, [string]$Key) {
-    foreach ($n in 'counts', 'alerted', 'lastSent', 'labels', 'good', 'held') { if ($s[$n]) { $s[$n].Remove($Key) } }
+    foreach ($n in 'counts', 'alerted', 'lastSent', 'labels', 'good') { $s[$n].Remove($Key) }
 }
 
 # Downloads the page. Talks to the COM3000 directly (no proxy), and if the page keeps
@@ -514,79 +461,6 @@ function Test-Card([string]$Ip) {
 
 # Puts "COM3000 Alerts ON" / "COM3000 Alerts OFF" shortcuts on the desktop (all users).
 # They run this script as administrator and leave the window open so you can see the result.
-# EPG safety copies go in ONE desktop folder, one file each, replaced every time:
-#   "<site> EPG before submit.txt"          (Make EPG - every blade's list before YES)
-#   "<site> EPG before refresh - <IP>.txt"  (daily EPG refresh)
-function Get-EpgCopyDir {
-    $desk = [Environment]::GetFolderPath('Desktop'); if (-not $desk) { $desk = $ScriptDir }
-    $dir = Join-Path $desk 'COM3000 EPG copies'
-    try {
-        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force -ErrorAction Stop | Out-Null }
-        # tidy up what older versions left on the desktop
-        $loose = @(Get-ChildItem -Path $desk -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match ' EPG (before refresh|before submit|from Overview|ready to submit)' -or $_.Name -like 'EPG submit test*' })
-        $dated = @(@($loose) + @(Get-ChildItem -Path $dir -File -ErrorAction SilentlyContinue) | Where-Object { $_ -and $_.Name -match ' EPG before submit \d{4}-\d\d-\d\d' } | Sort-Object LastWriteTime -Descending)
-        foreach ($f in $dated) {
-            $one = Join-Path $dir ($f.Name -replace ' \d{4}-\d\d-\d\d \d{4}', '')
-            try { if (-not (Test-Path $one)) { Move-Item -LiteralPath $f.FullName -Destination $one -ErrorAction Stop } else { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop } } catch {}
-        }
-        foreach ($f in $loose) {
-            if (-not (Test-Path -LiteralPath $f.FullName)) { continue }
-            try {
-                if ($f.Name -match ' EPG (from Overview|ready to submit)' -or $f.Name -like 'EPG submit test*') { Remove-Item -LiteralPath $f.FullName -Force -ErrorAction Stop }
-                else { Move-Item -LiteralPath $f.FullName -Destination (Join-Path $dir $f.Name) -Force -ErrorAction Stop }
-            } catch {}
-        }
-        return $dir
-    } catch { return $desk }
-}
-
-# Desktop background: com3000-wallpaper.jpg with the location name written on it, set for this user
-function Set-ComWallpaper([string]$Site) {
-    $src = Join-Path $ScriptDir $(if ("$Wallpaper" -eq 'gray') { 'com3000-wallpaper-gray.jpg' } else { 'com3000-wallpaper.jpg' })
-    if (-not (Test-Path $src)) { $src = Join-Path $ScriptDir 'com3000-wallpaper.jpg' }
-    if (-not (Test-Path $src)) { Write-Host "   (Desktop background skipped - com3000-wallpaper.jpg is not in this folder.)" -ForegroundColor Yellow; return }
-    $out = Join-Path $ScriptDir 'com3000-wallpaper-site.jpg'
-    try {
-        Add-Type -AssemblyName System.Drawing; Add-Type -AssemblyName System.Windows.Forms
-        # made at this screen's shape, so nothing gets cut off at the sides
-        $scr = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
-        $W = [Math]::Max(1024, $scr.Width); $H = [Math]::Max(600, $scr.Height)
-        if ($W -lt 1600) { $k = 1920 / $W; $W = [int]($W * $k); $H = [int]($H * $k) }      # keep it sharp
-        $img = [System.Drawing.Image]::FromFile($src)
-        $bmp = New-Object System.Drawing.Bitmap($W, $H); $g = [System.Drawing.Graphics]::FromImage($bmp)
-        $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-        $sc = [Math]::Max($W / $img.Width, $H / $img.Height)      # cover the screen, crop evenly
-        $dw = [int]($img.Width * $sc); $dh = [int]($img.Height * $sc)
-        $g.DrawImage($img, [int](($W - $dw) / 2), [int](($H - $dh) / 2), $dw, $dh); $img.Dispose()
-        $g.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
-        $px = [System.Drawing.GraphicsUnit]::Pixel
-        $bigSize = [Math]::Round($H * 0.055); $smallSize = [Math]::Round($H * 0.024)
-        $big = New-Object System.Drawing.Font('Segoe UI Semibold', [float]$bigSize, [System.Drawing.FontStyle]::Regular, $px)
-        $small = New-Object System.Drawing.Font('Segoe UI', [float]$smallSize, [System.Drawing.FontStyle]::Regular, $px)
-        # shrink a very long name so it always fits in the left half of the screen
-        while ($g.MeasureString($Site, $big).Width -gt $W * 0.5 -and $bigSize -gt 20) { $bigSize -= 2; $big = New-Object System.Drawing.Font('Segoe UI Semibold', [float]$bigSize, [System.Drawing.FontStyle]::Regular, $px) }
-        $b1 = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(150, 255, 255, 255))
-        $b2 = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(110, 255, 255, 255))
-        # bottom-left, clear of the taskbar and the screen edge
-        $x = [int]($W * 0.06); $y = [int]($H * 0.78)
-        $g.DrawString($Site, $big, $b1, $x, $y)
-        $g.DrawString('COM3000 headend PC', $small, $b2, $x + [int]($bigSize * 0.06), $y + [int]($bigSize * 1.35))
-        $g.Dispose()
-        $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Jpeg); $bmp.Dispose()
-    } catch { Copy-Item $src $out -Force }
-    try {
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name WallpaperStyle -Value '10'      # Fill
-        Set-ItemProperty -Path 'HKCU:\Control Panel\Desktop' -Name TileWallpaper -Value '0'
-        # Windows Spotlight would keep replacing it - turn Spotlight off for the desktop
-        try { New-Item -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\DesktopSpotlight\Settings' -Force -ErrorAction Stop | Out-Null; Set-ItemProperty -Path 'HKCU:\Software\Microsoft\Windows\CurrentVersion\DesktopSpotlight\Settings' -Name EnabledState -Value 0 -Type DWord } catch {}
-        if (-not ('ComWall' -as [type])) {
-            Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public static class ComWall { [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int SystemParametersInfo(int a, int b, string c, int d); }'
-        }
-        [void][ComWall]::SystemParametersInfo(20, 0, $out, 3)      # SPI_SETDESKWALLPAPER, save + tell Windows
-        Write-Host "Desktop background set ($(if ("$Wallpaper" -eq 'gray') { 'gray' } else { 'blue' }), with '$Site')." -ForegroundColor Green
-    } catch { Write-Host "   (Couldn't set the desktop background: $($_.Exception.Message))" -ForegroundColor Yellow }
-}
-
 function New-DesktopShortcuts {
     $desk = Join-Path $env:PUBLIC 'Desktop'
     $ps   = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
@@ -598,10 +472,7 @@ function New-DesktopShortcuts {
         @{ Name = 'COM3000 Status';     Arg = '-Status';    Icon = 'imageres.dll,76';  Tip = 'Show what the COM3000 monitor is watching'; Admin = $false },
         @{ Name = 'COM3000 Reset'; Arg = '-ResetCard'; Icon = 'imageres.dll,228'; IconFile = 'com3000-power.ico'; Tip = 'Reset a COM3000 card (or the whole COM3000) and watch it come back'; Admin = $true; Hidden = $true },
         @{ Name = 'COM3000 Settings'; Target = (Join-Path $env:SystemRoot 'System32\notepad.exe'); TargetArgs = "`"$SettingsFile`""; Icon = 'imageres.dll,109'; Tip = 'Edit this site''s monitor settings'; Admin = $true },
-        @{ Name = 'COM3000 Channel Check'; Arg = '-Picker'; Icon = 'imageres.dll,18'; IconFile = 'tv.ico'; Tip = 'Step through the channels in VLC'; Admin = $false; Hidden = $true },
-        @{ Name = 'COM3000 Make EPG'; Arg = '-MakeEpg'; Icon = 'imageres.dll,2'; IconFile = 'com3000-epg-list.ico'; Tip = 'Build the EPG from the Overview page and fill it in on the blades you pick'; Admin = $false },
-        @{ Name = 'COM3000 PC IP'; Arg = '-ShowIp'; Icon = 'imageres.dll,20'; IconFile = 'com3000-ip.ico'; Tip = 'Show (and copy) this PC''s IP address'; Admin = $false; Hidden = $true },
-        @{ Name = 'COM3000 Blades'; Arg = '-OpenBlades'; Icon = 'imageres.dll,1'; IconFile = 'com3000-chassis.ico'; Tip = 'Close Chrome and open a tab for every COM3000 blade and WebSTX'; Admin = $false; Hidden = $true }
+        @{ Name = 'COM3000 Channel Check'; Arg = '-Picker'; Icon = 'imageres.dll,18'; IconFile = 'tv.ico'; Tip = 'Step through the channels in VLC'; Admin = $false; Hidden = $true }
     )) {
         $path = Join-Path $desk "$($s.Name).lnk"
         $lnk  = $shell.CreateShortcut($path)
@@ -614,17 +485,13 @@ function New-DesktopShortcuts {
         $lnk.IconLocation     = if ($own -and (Test-Path $own)) { "$own,0" } else { Join-Path $env:SystemRoot "System32\$($s.Icon)" }
         $lnk.Description      = $s.Tip
         $lnk.Save()
-        # (older versions also opened 'COM3000 Blades' at startup - take that out)
-        foreach ($sd in @([Environment]::GetFolderPath('CommonStartup'), [Environment]::GetFolderPath('Startup'))) {
-            if ($sd) { Remove-Item -LiteralPath (Join-Path $sd "$($s.Name).lnk") -Force -ErrorAction SilentlyContinue }
-        }
         if (-not $s.Admin) { continue }
         # tick "Run as administrator" on the shortcut
         $bytes = [IO.File]::ReadAllBytes($path)
         $bytes[0x15] = $bytes[0x15] -bor 0x20
         [IO.File]::WriteAllBytes($path, $bytes)
     }
-    Write-Host "Desktop shortcuts ready: 'COM3000 Alerts ON', 'COM3000 Alerts OFF', 'COM3000 Status', 'COM3000 Channel Check', 'COM3000 Make EPG', 'COM3000 Blades', 'COM3000 PC IP', 'COM3000 Reset' and 'COM3000 Settings'."
+    Write-Host "Desktop shortcuts ready: 'COM3000 Alerts ON', 'COM3000 Alerts OFF', 'COM3000 Status', 'COM3000 Channel Check', 'COM3000 Reset' and 'COM3000 Settings'."
 }
 
 # ---------------------------------------------------------------------------
@@ -639,17 +506,6 @@ function Get-ComMainIp { if ($PageUrl -match '^https?://([^/]+)') { return $Matc
 $script:ComHostNow = ''
 function Get-ComIp { if ($script:ComHostNow) { return $script:ComHostNow } else { return (Get-ComMainIp) } }
 # main card first, then the other cards the monitor has seen (from monitor-state.json)
-function Protect-ResetPassword([string]$Plain) {
-    Add-Type -AssemblyName System.Security
-    $b = [System.Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($Plain), [Text.Encoding]::UTF8.GetBytes('COM3000-reset'), 'LocalMachine')
-    return [Convert]::ToBase64String($b)
-}
-function Unprotect-ResetPassword([string]$Secret) {
-    if (-not $Secret) { return '' }
-    Add-Type -AssemblyName System.Security
-    $b = [System.Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($Secret), [Text.Encoding]::UTF8.GetBytes('COM3000-reset'), 'LocalMachine')
-    return [Text.Encoding]::UTF8.GetString($b)
-}
 function Get-ComHosts {
     $h = New-Object System.Collections.ArrayList
     $main = Get-ComMainIp; if ($main) { [void]$h.Add($main) }
@@ -706,22 +562,7 @@ function Invoke-Backup {
     $m = [regex]::Match($epgHtml, "(?is)<textarea[^>]*name=['""]?EpgList['""]?[^>]*>(.*?)</textarea>")
     if (-not $m.Success) { throw "EPG page ($epgUrl) loaded but the EPG list box was not found." }
     $epg = Get-HtmlText $m.Groups[1].Value
-    if ($epg.Count -eq 0) { $epg = @("(the EPG list on $epgHost is empty)") }      # other blades' lists are still saved below
-
-    # the EPG is often copied onto more than one blade (AEP boxes / TVs on the COM directly):
-    # note which blades have the same list, and save any that differ
-    $sameOn = New-Object System.Collections.ArrayList; $extra = @()
-    foreach ($h in @(Get-ComHosts)) {
-        if ($h -eq $epgHost) { continue }
-        try {
-            if (-not (Test-HostPort $h 2000)) { continue }
-            $o = Get-EpgBoxLines (Get-PageHtml "http://$h/cgi-bin/webcmd?screen=EpgDisplay")
-            if (-not $o -or $o.Count -eq 0) { continue }
-            $mine = @($epg | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
-            if (($o -join '|') -eq ($mine -join '|')) { [void]$sameOn.Add($h) }
-            else { $extra += @('', '', "EPG on $h (different from the one above)", '') + $o }
-        } catch {}
-    }
+    if ($epg.Count -eq 0) { throw 'The EPG list box is empty.' }
 
     $now  = Get-Date
     $safe = ($SiteName -replace '[\\/:*?"<>|]', '').Trim()
@@ -732,10 +573,10 @@ function Invoke-Backup {
         ''
         'Tune all'
         ''
-    ) + $tune + @('', '', "EPG$(if ($sameOn.Count) { " (from $epgHost - the same list is also on $($sameOn -join ', '))" })", '') + $epg + $extra + @('')
-    if (-not (Test-Path $BackupDir -PathType Container)) { New-Item -ItemType Directory -Path $BackupDir -Force -ErrorAction Stop | Out-Null }
+    ) + $tune + @('', '', 'EPG', '') + $epg + @('')
+    if (-not (Test-Path $BackupDir)) { New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null }
     $file = Join-Path $BackupDir "$safe COM3000 backup.txt"
-    Set-Content -Path $file -Value ($text -join "`r`n") -Encoding UTF8 -ErrorAction Stop
+    Set-Content -Path $file -Value ($text -join "`r`n") -Encoding UTF8
     return [pscustomobject]@{ File = $file; TuneLines = $tune.Count; EpgLines = $epg.Count }
 }
 
@@ -812,7 +653,7 @@ if ($SyncDrive) {
 # ready to paste into the EPG page. Each EPG line is tied to a tuner by its QAM port
 # (the last number on the line), so virtual channel numbers stay the same.
 # ---------------------------------------------------------------------------
-function Build-EpgFromOverview([string]$OverviewHtml, [string]$EpgHtml, [int]$StartVirt = 3, [int]$GuidePort = 20, [int]$GuideVirt = 0, $Community = @()) {
+function Build-EpgFromOverview([string]$OverviewHtml, [string]$EpgHtml, [int]$StartVirt = 3) {
     $m = [regex]::Match($EpgHtml, "(?is)<textarea[^>]*name=['""]?EpgList['""]?[^>]*>(.*?)</textarea>")
     if (-not $m.Success) { throw 'The EPG list box was not found on the EPG page.' }
     $old = @(Get-HtmlText $m.Groups[1].Value | ForEach-Object { $_.Trim() } | Where-Object { $_ })
@@ -830,7 +671,7 @@ function Build-EpgFromOverview([string]$OverviewHtml, [string]$EpgHtml, [int]$St
 
     $out = New-Object System.Collections.ArrayList
     $changes = New-Object System.Collections.ArrayList
-    $usedPorts = @{}; $usedVirt = @{}; $dtvInEpg = @{}; $portVirt = @{}; $lineObj = @{}
+    $usedPorts = @{}; $usedVirt = @{}; $dtvInEpg = @{}
     foreach ($line in $old) {
         $x = [regex]::Match($line, '^(\d+)-(\d+)\s+(\d+)-(\d+)-(hd|sd)\s+(\S+)\s+(\d+)\s*$', 'IgnoreCase')
         if (-not $x.Success) {
@@ -856,376 +697,29 @@ function Build-EpgFromOverview([string]$OverviewHtml, [string]$EpgHtml, [int]$St
             [void]$changes.Add("FIXED    $virt  DIRECTV $($x.Groups[3].Value) -> $($t.Maj) $($t.Name)  (tuner $($t.Tuner), port $port)")
         }
         if (-not $dtvInEpg.ContainsKey("$($t.Maj)-$($t.Min)")) { $dtvInEpg["$($t.Maj)-$($t.Min)"] = $virt }
-        $o = [pscustomobject]@{ Sort = $virt; Text = $new }
-        if (-not $portVirt.ContainsKey($port) -and $x.Groups[2].Value -eq '0') { $portVirt[$port] = [int]$x.Groups[1].Value; $lineObj[$port] = $o }
-        [void]$out.Add($o)
+        [void]$out.Add([pscustomobject]@{ Sort = $virt; Text = $new })
     }
     # tuners on a QAM port the EPG doesn't list
     # new location (empty EPG): channel numbers start at 3-0, after the guide on 2-0
     $maxVirt = (@($usedVirt.Keys | ForEach-Object { [int]($_ -split '-')[0] }) | Measure-Object -Maximum).Maximum
     $nextVirt = if ($maxVirt) { [int]$maxVirt + 1 } else { $StartVirt }
-    # new location: community / internal channels typed in (they aren't on the Overview page)
-    if ($true) {
-        foreach ($cc in @($Community | Where-Object { $_ -and $_.Virt -and $_.Port })) {
-            if ($usedVirt.ContainsKey("$($cc.Virt)-0")) { [void]$changes.Add("SKIPPED  $($cc.Virt)-0  community channel $($cc.Name) - that number is already used"); continue }
-            [void]$out.Add([pscustomobject]@{ Sort = "$($cc.Virt)-0"; Text = "$($cc.Virt)-0 N$($cc.Name) 1 $($cc.Port)" })
-            [void]$changes.Add("ADDED    $($cc.Virt)-0  community channel $($cc.Name) (port $($cc.Port))")
-            $usedVirt["$($cc.Virt)-0"] = $true; $usedPorts[[int]$cc.Port] = $true
-        }
+    if ($StartVirt -gt 2 -and -not $usedVirt.ContainsKey('2-0') -and -not ($old | Where-Object { $_ -match '^2-0\s' })) {
+        [void]$out.Add([pscustomobject]@{ Sort = '2-0'; Text = '2-0 NEPG_Electronic_Program_Guide 1 20' })
+        [void]$changes.Add('ADDED    2-0  guide channel (NEPG_Electronic_Program_Guide, port 20 - the usual setting, check it)')
+        $usedVirt['2-0'] = $true
     }
-    # new location: add the guide line (unless the EPG already has one, or 'none' was chosen)
-    $hasGuide = [bool]($old | Where-Object { $_ -match '^\d+-\d+\s+NEPG' })
-    if ($GuideVirt -gt 0 -and -not $hasGuide -and -not $usedVirt.ContainsKey("$GuideVirt-0")) {
-        [void]$out.Add([pscustomobject]@{ Sort = "$GuideVirt-0"; Text = "$GuideVirt-0 NEPG_Electronic_Program_Guide 1 $GuidePort" })
-        [void]$changes.Add("ADDED    $GuideVirt-0  guide channel (NEPG_Electronic_Program_Guide, port $GuidePort)")
-        $usedVirt["$GuideVirt-0"] = $true
-    }
-    # lines that were added at the END while their old spot is still free (e.g. 3-0 deleted, then re-added
-    # as 34-0 by an older version): in port order they break the sequence, so move them back into the gap
-    $ports = @($portVirt.Keys | Sort-Object)
-    if ($ports.Count -ge 3) {
-        $len = @(1) * $ports.Count; $prev = @(-1) * $ports.Count
-        for ($a = 0; $a -lt $ports.Count; $a++) { for ($b = 0; $b -lt $a; $b++) { if ($portVirt[$ports[$b]] -lt $portVirt[$ports[$a]] -and $len[$b] + 1 -gt $len[$a]) { $len[$a] = $len[$b] + 1; $prev[$a] = $b } } }
-        $end = 0; for ($a = 1; $a -lt $ports.Count; $a++) { if ($len[$a] -gt $len[$end]) { $end = $a } }
-        $inOrder = @{}; for ($a = $end; $a -ge 0; $a = $prev[$a]) { $inOrder[$ports[$a]] = $true }
-        $topInOrder = (@($inOrder.Keys | ForEach-Object { $portVirt[$_] }) | Measure-Object -Maximum).Maximum
-        $stray = @($ports | Where-Object { -not $inOrder.ContainsKey($_) })
-        # only when every out-of-order line sits after the end of the list (so nothing laid out on purpose is touched)
-        if ($stray.Count -and $stray.Count -le 5 -and -not @($stray | Where-Object { $portVirt[$_] -le $topInOrder }).Count) {
-            $oldVirt = @{}
-            foreach ($sp in $stray) { $oldVirt[$sp] = $portVirt[$sp]; $usedVirt.Remove("$($portVirt[$sp])-0"); $portVirt.Remove($sp) }
-            $i = 0
-            while ($i -lt $stray.Count) {
-                $run = @($stray[$i]); $j = $i + 1
-                while ($j -lt $stray.Count -and -not @($portVirt.Keys | Where-Object { $_ -gt $stray[$j - 1] -and $_ -lt $stray[$j] }).Count) { $run += $stray[$j]; $j++ }
-                $i = $j
-                $below = @($portVirt.Keys | Where-Object { $_ -lt $run[0] } | Sort-Object -Descending | Select-Object -First 1)
-                $above = @($portVirt.Keys | Where-Object { $_ -gt $run[-1] } | Sort-Object | Select-Object -First 1)
-                $lo = if ($below.Count) { $portVirt[$below[0]] } elseif ($above.Count) { [Math]::Min($StartVirt, $portVirt[$above[0]]) - 1 } else { 0 }
-                $hi = if ($above.Count) { $portVirt[$above[0]] } else { $lo + $run.Count + 1 }
-                $free = @(for ($v = $lo + 1; $v -lt $hi; $v++) { if ($v -ge 1 -and -not $usedVirt.ContainsKey("$v-0")) { $v } })
-                if ($free.Count -lt $run.Count -or (-not $below.Count -and -not $above.Count)) { $free = @($run | ForEach-Object { $oldVirt[$_] }) }      # no room: leave them where they are
-                elseif (-not $below.Count) { $free = @($free | Select-Object -Last $run.Count) }
-                for ($k = 0; $k -lt $run.Count; $k++) {
-                    $sp = $run[$k]; $nv = [int]$free[$k]
-                    $portVirt[$sp] = $nv; $usedVirt["$nv-0"] = $true
-                    if ($nv -ne $oldVirt[$sp]) {
-                        $o = $lineObj[$sp]; $o.Sort = "$nv-0"; $o.Text = $o.Text -replace '^\d+-0\b', "$nv-0"
-                        foreach ($key in @($dtvInEpg.Keys)) { if ($dtvInEpg[$key] -eq "$($oldVirt[$sp])-0") { $dtvInEpg[$key] = "$nv-0" } }
-                        [void]$changes.Add("MOVED    $($oldVirt[$sp])-0 -> $nv-0  DIRECTV $($byPort[$sp].Maj) $($byPort[$sp].Name)  (port $sp) - back in its place between the tuners around it")
-                    }
-                }
-            }
-        }
-    }
-    $maxVirt = (@($usedVirt.Keys | ForEach-Object { [int]($_ -split '-')[0] }) | Measure-Object -Maximum).Maximum
-    $nextVirt = if ($maxVirt) { [int]$maxVirt + 1 } else { $StartVirt }
-    # tuners missing from the EPG go back in their place among the tuners: a line deleted from the middle
-    # comes back with its old number (between the tuners on the ports before and after it), if that's free
-    $missing = @($byPort.Keys | Sort-Object | Where-Object { -not $usedPorts.ContainsKey($_) -and $byPort[$_].Obj -ne '0' -and $byPort[$_].Maj -ne '0' })
-    $place = @{}; $between = @{}
-    $i = 0
-    while ($i -lt $missing.Count) {
-        $run = @($missing[$i]); $j = $i + 1
-        while ($j -lt $missing.Count -and -not @($portVirt.Keys | Where-Object { $_ -gt $missing[$j - 1] -and $_ -lt $missing[$j] }).Count) { $run += $missing[$j]; $j++ }
-        $i = $j
-        $below = @($portVirt.Keys | Where-Object { $_ -lt $run[0] } | Sort-Object -Descending | Select-Object -First 1)
-        $above = @($portVirt.Keys | Where-Object { $_ -gt $run[-1] } | Sort-Object | Select-Object -First 1)
-        if (-not $below.Count -and -not $above.Count) { continue }
-        $lo = if ($below.Count) { $portVirt[$below[0]] } else { [Math]::Min($StartVirt, $portVirt[$above[0]]) - 1 }
-        $hi = if ($above.Count) { $portVirt[$above[0]] } else { $lo + $run.Count + 1 }
-        $free = @(for ($v = $lo + 1; $v -lt $hi; $v++) { if ($v -ge 1 -and -not $usedVirt.ContainsKey("$v-0")) { $v } })
-        if ($free.Count -lt $run.Count) { continue }
-        if (-not $below.Count) { $free = @($free | Select-Object -Last $run.Count) }
-        for ($k = 0; $k -lt $run.Count; $k++) { $place[$run[$k]] = $free[$k]; $usedVirt["$($free[$k])-0"] = $true; if ($above.Count) { $between[$run[$k]] = $true } }
-    }
-    # hd or sd: whichever most of this blade's lines use
-    $nSd = @($old | Where-Object { $_ -match '^\d+-\d+\s+\d+-\d+-sd\b' }).Count; $nHd = @($old | Where-Object { $_ -match '^\d+-\d+\s+\d+-\d+-hd\b' }).Count
-    $hdsd = if ($nSd -gt $nHd) { 'sd' } else { 'hd' }
-    foreach ($port in $missing) {
+    foreach ($port in @($byPort.Keys | Sort-Object)) {
+        if ($usedPorts.ContainsKey($port)) { continue }
         $t = $byPort[$port]
+        if ($t.Obj -eq '0' -or $t.Maj -eq '0') { continue }
         $dupOf = $dtvInEpg["$($t.Maj)-$($t.Min)"]
-        if ($place.ContainsKey($port)) { $virt = "$($place[$port])-0" }
-        else {
-            while ($usedVirt.ContainsKey("$nextVirt-0")) { $nextVirt++ }     # step over the guide / community channel numbers
-            $virt = "$nextVirt-0"; $nextVirt++
-        }
-        $usedVirt[$virt] = $true
+        $virt = "$nextVirt-0"; $nextVirt++
         if (-not $dupOf) { $dtvInEpg["$($t.Maj)-$($t.Min)"] = $virt }
-        [void]$out.Add([pscustomobject]@{ Sort = $virt; Text = "$virt $($t.Maj)-$($t.Min)-$hdsd 1 $port" })
-        [void]$changes.Add("ADDED    $virt  DIRECTV $($t.Maj) $($t.Name)  (tuner $($t.Tuner), port $port) - $(if ($between.ContainsKey($port)) { 'put back in its place' } else { 'new virtual channel' }), $hdsd like the other lines" + $(if ($dupOf) { "; same channel as $dupOf - delete this line if you don't want it twice" } else { '' }))
+        [void]$out.Add([pscustomobject]@{ Sort = $virt; Text = "$virt $($t.Maj)-$($t.Min)-hd 1 $port" })
+        [void]$changes.Add("ADDED    $virt  DIRECTV $($t.Maj) $($t.Name)  (tuner $($t.Tuner), port $port) - new virtual channel, check hd/sd" + $(if ($dupOf) { "; same channel as $dupOf - delete this line if you don't want it twice" } else { '' }))
     }
     $lines = @($out | Sort-Object { if ($_.Sort -match '^(\d+)-(\d+)$') { [int]$Matches[1] * 1000 + [int]$Matches[2] } else { 999999 } } | ForEach-Object { $_.Text })
     return [pscustomobject]@{ Lines = $lines; Changes = @($changes); OldCount = $old.Count; NoQam = $noQam }
-}
-
-# Encode a form value exactly the way Chrome does for a GET form (application/x-www-form-urlencoded):
-# letters, digits and * - . _ stay; a space becomes '+'; everything else is %XX in capitals.
-# (The COM3000 does NOT understand %20 for a space - sending that emptied the EPG list.)
-function ConvertTo-FormValue([string]$Value) {
-    $sb = New-Object System.Text.StringBuilder
-    foreach ($b in [Text.Encoding]::UTF8.GetBytes($Value)) {
-        $c = [char]$b
-        if (($b -ge 0x30 -and $b -le 0x39) -or ($b -ge 0x41 -and $b -le 0x5A) -or ($b -ge 0x61 -and $b -le 0x7A) -or $c -in @('*', '-', '.', '_')) { [void]$sb.Append($c) }
-        elseif ($b -eq 0x20) { [void]$sb.Append('+') }
-        else { [void]$sb.Append('%' + $b.ToString('X2')) }
-    }
-    return $sb.ToString()
-}
-
-# The exact request the EPG page's Submit button sends: every field as it is on the page now
-# (text boxes, the ticked checkboxes, the list), to the form's address. Returns the full URL.
-function Get-EpgSubmitUrl([string]$EpgHtml, [string]$BladeIp, [string[]]$NewLines = $null) {
-    $fm = [regex]::Match($EpgHtml, "(?is)<form\b[^>]*>(?:(?!</form>).)*?name=['""]?EpgList['""]?.*?</form>")
-    if (-not $fm.Success) { throw 'The EPG form was not found on the page.' }
-    $form = $fm.Value
-    $attr = { param([string]$Tag, [string]$Name)
-        $m = [regex]::Match($Tag, "(?i)\b$Name\s*=\s*(?:'([^']*)'|""([^""]*)""|([^\s>]+))")
-        if ($m.Success) { [System.Net.WebUtility]::HtmlDecode(($m.Groups[1].Value + $m.Groups[2].Value + $m.Groups[3].Value)) } else { $null } }
-    $pairs = New-Object System.Collections.ArrayList
-    foreach ($el in [regex]::Matches($form, '(?is)<(input|select|textarea)\b[^>]*>(?:(?<=<select\b[^>]*>).*?</select>|(?<=<textarea\b[^>]*>).*?</textarea>)?')) {
-        $tag = $el.Value; $kind = $el.Groups[1].Value.ToLower()
-        $name = & $attr $tag 'name'; if (-not $name) { continue }
-        if ($kind -eq 'input') {
-            $type = "$(& $attr $tag 'type')".ToLower(); if (-not $type) { $type = 'text' }
-            if ($type -in @('submit', 'button', 'reset', 'image', 'file')) { continue }      # Submit has no name; EpgLoad/EpgDisable are never sent
-            if ($type -in @('checkbox', 'radio')) {
-                if ($tag -notmatch '(?i)\bchecked\b') { continue }
-                $v = & $attr $tag 'value'; if ($null -eq $v) { $v = 'on' }
-            } else { $v = & $attr $tag 'value'; if ($null -eq $v) { $v = '' } }
-            [void]$pairs.Add("$name=$(ConvertTo-FormValue $v)")
-        } elseif ($kind -eq 'textarea') {
-            $inner = [regex]::Match($tag, '(?is)<textarea\b[^>]*>(.*?)</textarea>').Groups[1].Value
-            $inner = [System.Net.WebUtility]::HtmlDecode(($inner -replace '^\r?\n', ''))
-            $v = (@($inner -split '\r?\n') -join "`r`n")
-            if ($null -ne $NewLines -and $name -eq 'EpgList') { $v = (($NewLines | ForEach-Object { "$_" }) -join "`r`n") + "`r`n" }      # the new list instead of what's there (ends with a line break, like Chrome)
-            [void]$pairs.Add("$name=$(ConvertTo-FormValue $v)")
-        } else {
-            $opt = [regex]::Match($tag, "(?is)<option\b[^>]*\bselected\b[^>]*>")
-            if (-not $opt.Success) { $opt = [regex]::Match($tag, "(?is)<option\b[^>]*>") }
-            $v = if ($opt.Success) { & $attr $opt.Value 'value' } else { '' }
-            [void]$pairs.Add("$name=$(ConvertTo-FormValue "$v")")
-        }
-    }
-    if (-not ($pairs | Where-Object { $_ -like 'EpgList=*' })) { throw 'The EPG list box was not found in the form.' }
-    return "http://$BladeIp/cgi-bin/webcmd?" + ($pairs -join '&')
-}
-
-# SAFETY SWITCH: an early version sent spaces as %20, which the COM3000 doesn't accept - it emptied
-# the EPG lists (Nov 2026). Fixed to send exactly what Chrome sends (spaces as +), confirmed on a
-# real COM3000. Set to $false to stop the script from ever submitting the EPG.
-$script:EpgSubmitEnabled = $true
-$script:EpgSubmitAllowedNow = $false     # set only by the hand-run test (6. Refresh EPG now) after you type YES
-
-# Re-submit each blade's EPG page as it is, then check the list is still there. One result per blade.
-function Invoke-EpgRefresh {
-    $hosts = @("$EpgRefreshBlades" -split '[,\s]+' | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
-    $onlyWithList = $false
-    if (-not $hosts) { $hosts = @(@(Get-ComHosts) + @("$EpgIp".Trim()) | Where-Object { $_ } | Select-Object -Unique); $onlyWithList = $true }
-    $results = New-Object System.Collections.ArrayList
-    foreach ($h in $hosts) {
-        try {
-            if (-not (Test-HostPort $h 3000)) { throw "$h is not answering" }
-            $page = Get-PageHtml "http://$h/cgi-bin/webcmd?screen=EpgDisplay"
-            $before = Get-EpgBoxLines $page
-            if ($null -eq $before) { if ($onlyWithList) { continue } else { throw "$h has no EPG page" } }
-            if ($before.Count -eq 0) { if ($onlyWithList) { continue } else { throw "$h has an empty EPG list - not submitted" } }
-            # keep a copy of what's there now on the desktop, so it can be pasted back
-            try {
-                $desk0 = Get-EpgCopyDir
-                Set-Content -Path (Join-Path $desk0 "$(($SiteName -replace '[\\/:*?"<>|]', '').Trim()) EPG before refresh - $h.txt") -Value $before -Encoding ASCII -ErrorAction Stop
-            } catch {}
-            if (-not ($script:EpgSubmitEnabled -or $script:EpgSubmitAllowedNow)) {
-                $u = Get-EpgSubmitUrl $page $h
-                $desk = Get-EpgCopyDir
-                try { Add-Content -Path (Join-Path $desk 'EPG submit test - what the script would send.txt') -Value @("$(Get-Date)  $h", $u, '') -ErrorAction Stop } catch {}
-                throw "submitting from the script is turned off for now - nothing was sent to $h (the request it would send is saved in the desktop folder 'COM3000 EPG copies')"
-            }
-            [void](Get-PageHtml (Get-EpgSubmitUrl $page $h))
-            Start-Sleep -Seconds 2
-            $page2 = Get-PageHtml "http://$h/cgi-bin/webcmd?screen=EpgDisplay"
-            $after = Get-EpgBoxLines $page2
-            if ($null -eq $after -or (($after -join '|') -ne ($before -join '|'))) {
-                # SAFETY NET: put the list back the way it was
-                $fixed = $false
-                try { [void](Get-PageHtml (Get-EpgSubmitUrl $page2 $h $before)); Start-Sleep -Seconds 2; $chk = Get-EpgBoxLines (Get-PageHtml "http://$h/cgi-bin/webcmd?screen=EpgDisplay"); $fixed = (($chk -join '|') -eq ($before -join '|')) } catch {}
-                throw "$h - the EPG list didn't come back the same after submitting ($(if ($after) { $after.Count } else { 0 }) lines, expected $($before.Count)); $(if ($fixed) { 'the old list was put back' } else { 'COULD NOT put the old list back - paste it from the file in the desktop folder COM3000 EPG copies' })"
-            }
-            [void]$results.Add([pscustomobject]@{ Host = $h; Ok = $true; Lines = $before.Count; Err = '' })
-        } catch {
-            [void]$results.Add([pscustomobject]@{ Host = $h; Ok = $false; Lines = 0; Err = (Get-CleanError $_) })
-        }
-    }
-    return $results
-}
-
-# EPG list lines currently in an EPG page's box
-function Get-EpgBoxLines([string]$EpgHtml) {
-    $m = [regex]::Match($EpgHtml, "(?is)<textarea[^>]*name=['""]?EpgList['""]?[^>]*>(.*?)</textarea>")
-    if (-not $m.Success) { return $null }
-    return ,@(Get-HtmlText $m.Groups[1].Value | ForEach-Object { $_.Trim() } | Where-Object { $_ })     # the comma keeps an empty list from turning into 'no page'
-}
-# A ready-to-submit copy of one blade's EPG page: that blade's own form, every setting (checkboxes)
-# exactly as it is now, with the new list in the box. Nothing is sent until Submit is pressed.
-function New-EpgSubmitPage([string]$EpgHtml, [string[]]$Lines, [string]$BladeIp, [string]$BladeName, [string[]]$Changes, [string]$Note) {
-    $fm = [regex]::Match($EpgHtml, "(?is)<form\b[^>]*>(?:(?!</form>).)*?name=['""]?EpgList['""]?.*?</form>")
-    if (-not $fm.Success) { throw 'EPG form not found' }
-    $form = $fm.Value
-    $enc = [System.Net.WebUtility]::HtmlEncode(($Lines -join "`r`n"))
-    $form = [regex]::Replace($form, "(?is)(<textarea[^>]*name=['""]?EpgList['""]?[^>]*>).*?(</textarea>)", { param($mm) $mm.Groups[1].Value + $enc + $mm.Groups[2].Value })
-    $form = [regex]::Replace($form, "(?i)action=['""][^'""]*['""]", "action='http://$BladeIp/cgi-bin/webcmd'", 1)
-    $form = [regex]::Replace($form, "(?i)<input[^>]*name=['""]?(EpgLoad|EpgDisable)['""]?[^>]*>[^<\r\n]*", '')     # only the normal Submit stays
-    $form = $form -replace '(&lt;|<)-\s*Load currently playing channels\.', ''
-    $form = [regex]::Replace($form, "(?i)<input type=['""]submit['""]>", "<input type='submit' value='Submit to $BladeName ($BladeIp)' style='font-size:16px;padding:6px 18px;background:#1f7a3f;color:#fff;border:0;border-radius:4px;cursor:pointer'>", 1)
-    $chg = if ($Changes.Count) { '<ul>' + (($Changes | ForEach-Object { '<li>' + [System.Net.WebUtility]::HtmlEncode($_) + '</li>' }) -join '') + '</ul>' } else { '<p><b>This blade''s EPG already matches the Overview page - nothing to change.</b></p>' }
-    $noteHtml = if ($Note) { "<div class='box'>$([System.Net.WebUtility]::HtmlEncode($Note))</div>" } else { '' }
-    $safeSite = [System.Net.WebUtility]::HtmlEncode($SiteName)
-    return @"
-<!doctype html><html><head><meta charset='utf-8'><title>$safeSite EPG - $BladeName $BladeIp</title>
-<style>body{font:14px Segoe UI,Arial,sans-serif;margin:16px;max-width:1000px} .box{background:#fff8d6;border:1px solid #e0c96b;padding:10px 14px;border-radius:6px;margin-bottom:14px}
-.blade{display:inline-block;background:#1f5f8b;color:#fff;padding:3px 10px;border-radius:4px;font-weight:600}
-li{font-family:Consolas,monospace;font-size:13px}</style></head><body>
-<h2>$safeSite - EPG for <span class='blade'>$BladeName &middot; $BladeIp</span></h2>
-<div class='box'><b>Nothing has been sent yet.</b> This is the EPG page of <b>$BladeName ($BladeIp)</b> with its settings and checkboxes as they are now, and the new channel list already in the box.
-Check the boxes are right for this blade, then press <b>Submit</b> at the bottom. Run Backup Now first so you can go back.</div>
-$noteHtml
-<h3>Changes on this blade</h3>$chg
-<pre style='font:13px Consolas,monospace'>$form</pre>
-</body></html>
-"@
-}
-
-if ($RefreshEpg) {
-    if (-not $script:EpgSubmitEnabled) {
-        # test mode: send only after you say so, and only from this window
-        $targets = @("$EpgRefreshBlades" -split '[,\s]+' | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' })
-        Write-Host 'TEST: this re-submits the EPG page exactly as it is (same list, same checkboxes), the same request Chrome sends.' -ForegroundColor Yellow
-        Write-Host "Blades: $(if ($targets) { $targets -join ', ' } else { 'every blade that has an EPG list' })"
-        Write-Host 'Each blade''s current list is saved first in the desktop folder 'COM3000 EPG copies' ("... EPG before refresh - <IP>.txt"), so you can paste it back.'
-        $one = "$(Read-Host 'Test on ONE blade only? Type its IP address (e.g. 192.168.3.19), or Enter for the list above')".Trim()
-        if ($one -match '^\d+\.\d+\.\d+\.\d+$') { $EpgRefreshBlades = $one }
-        if ("$(Read-Host 'Type YES to send')".Trim() -notmatch '^(yes|y)$') { Write-Host 'Cancelled - nothing was sent.'; return }
-        $script:EpgSubmitAllowedNow = $true
-    }
-    Write-Host "Re-submitting the EPG page(s) for $SiteName, exactly as they are..." -ForegroundColor Cyan
-    $res = @(Invoke-EpgRefresh)
-    if (-not $res) { Write-Host 'No blade with an EPG list was found.' -ForegroundColor Yellow }
-    foreach ($x in $res) {
-        if ($x.Ok) { Write-Host "  $($x.Host): refreshed ($($x.Lines) lines, unchanged)" -ForegroundColor Green; Write-Log "EPG refreshed by hand on $($x.Host) ($($x.Lines) lines)" }
-        else { Write-Host "  FAILED: $($x.Err)" -ForegroundColor Red }
-    }
-    if (@($res | Where-Object { -not $_.Ok }).Count) { Write-Host 'If a list is now wrong or empty: open "... EPG before refresh - <IP>.txt" in the desktop folder 'COM3000 EPG copies', paste it into that blade''s EPG box and press Submit.' -ForegroundColor Yellow }
-    return
-}
-
-# ---------------------------------------------------------------------------
-#  -OpenBlades: close Chrome, then open it again with a tab for every COM3000 blade.
-#  Runs from the 'COM3000 Blades' desktop icon.
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
-#  -ShowIp: show this PC's address (the one to type into a blade's EPG DestIP), copied to the clipboard
-# ---------------------------------------------------------------------------
-if ($SetWallpaper) {
-    if ("$Wallpaper" -notin 'blue', 'gray') { $Wallpaper = 'blue' }
-    $a = Read-Host "Background color: blue or gray [$Wallpaper]"
-    if ($a -match '^\s*(g|gray|grey)\s*$') { $Wallpaper = 'gray' } elseif ($a -match '^\s*b') { $Wallpaper = 'blue' }
-    Set-ComWallpaper $SiteName
-    # remember the choice for next time
-    try { if (Test-Path $SettingsFile) { $t = Get-Content $SettingsFile -Raw; if ($t -match '(?m)^\$Wallpaper\s*=') { $t = $t -replace "(?m)^\`$Wallpaper(\s*)=\s*'[^']*'", "`$Wallpaper`${1}= '$Wallpaper'" } else { $t += "`r`n`$Wallpaper          = '$Wallpaper'`r`n" }; Set-Content -Path $SettingsFile -Value $t.TrimEnd() -Encoding UTF8 } } catch {}
-    exit 0
-}
-
-if ($ShowIp) {
-    Add-Type -AssemblyName System.Windows.Forms
-    $rows = @()
-    try {
-        foreach ($a in @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop | Where-Object { $_.IPAddress -notmatch '^(127\.|169\.254\.)' } | Sort-Object InterfaceAlias)) {
-            $rows += [pscustomobject]@{ Ip = $a.IPAddress; Name = $a.InterfaceAlias }
-        }
-    } catch {
-        foreach ($a in @([System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) | Where-Object { $_.AddressFamily -eq 'InterNetwork' -and "$_" -notmatch '^(127\.|169\.254\.)' })) { $rows += [pscustomobject]@{ Ip = "$a"; Name = '' } }
-    }
-    # the one on the COM3000's network (same first three numbers as the COM3000) goes first
-    $com = Get-ComMainIp
-    $pre = if ($com -match '^(\d+\.\d+\.\d+)\.') { $Matches[1] + '.' } else { '' }
-    $best = @($rows | Where-Object { $pre -and $_.Ip.StartsWith($pre) }) | Select-Object -First 1
-    if (-not $best) { $best = $rows | Select-Object -First 1 }
-    if (-not $best) { [void][System.Windows.Forms.MessageBox]::Show('No network address found - is the network cable plugged in?', 'This PC''s IP'); exit 1 }
-    try { [System.Windows.Forms.Clipboard]::SetText($best.Ip) } catch {}
-    $txt = "This PC's IP:   $($best.Ip)`n`n(copied - paste it into DestIP on a blade's EPG page)"
-    if ($com) { $txt += "`n`nCOM3000: $com" }
-    $others = @($rows | Where-Object { $_.Ip -ne $best.Ip })
-    if ($others.Count) { $txt += "`n`nOther addresses on this PC:`n" + (($others | ForEach-Object { "   $($_.Ip)   $($_.Name)" }) -join "`n") }
-    [void][System.Windows.Forms.MessageBox]::Show($txt, "This PC's IP - $SiteName", 'OK', 'Information')
-    exit 0
-}
-
-if ($OpenBlades) {
-    # the addresses to try - a tab opens only for the ones that answer (a site with 2 blades gets 2 tabs)
-    $tryBlades = @('192.168.3.18', '192.168.3.19', '192.168.3.20', '192.168.3.21', '192.168.3.22', '192.168.3.23')
-    $alwaysOpen = @('192.168.10.2')       # WebSTX - always opened
-    foreach ($h in @(Get-ComHosts) + @("$EpgIp".Trim())) { if ($h -match '^\d+\.\d+\.\d+\.\d+$' -and $tryBlades -notcontains $h) { $tryBlades += $h } }
-    $ips = @()
-    # at startup the network can take a minute: keep trying for up to 2 minutes until a blade answers
-    $until = (Get-Date).AddMinutes(2)
-    do {
-        $tests = @($tryBlades | ForEach-Object { $tc = New-Object Net.Sockets.TcpClient; [pscustomobject]@{ Ip = $_; Tc = $tc; Task = $tc.ConnectAsync($_, 80) } })
-        try { [void][Threading.Tasks.Task]::WaitAll(@($tests | ForEach-Object { $_.Task }), 1200) } catch {}
-        $ips = @($tests | Where-Object { $_.Task.Status -eq 'RanToCompletion' -and $_.Tc.Connected } | ForEach-Object { $_.Ip })
-        foreach ($t in $tests) { try { $t.Tc.Close() } catch {} }
-        if ($ips.Count) { break }
-        Start-Sleep -Seconds 10
-    } while ((Get-Date) -lt $until)
-    $ips = @($ips | Sort-Object { [version]$_ })
-    if (-not $ips.Count) { Write-Log 'Open blades: no blade answered - opening WebSTX only' }
-
-    # close every Chrome window first, so there's only one set of blade tabs
-    $open = @(Get-Process -Name chrome -ErrorAction SilentlyContinue)
-    foreach ($p in $open) { try { $p.CloseMainWindow() | Out-Null } catch {} }
-    for ($i = 0; $i -lt 8 -and $open.Count -and (Get-Process -Name chrome -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 250 }      # up to 2 s, only if Chrome was open
-    Get-Process -Name chrome -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-    for ($i = 0; $i -lt 20 -and (Get-Process -Name chrome -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 250 }
-
-    # only the blades that have an EPG list (usually 2) - fewer tabs, so a small PC doesn't freeze.
-    # Uses the blades picked for the daily EPG refresh (installer question 17), otherwise reads each blade's EPG page.
-    $epgIps = @("$EpgRefreshBlades" -split '[,\s]+' | Where-Object { $ips -contains $_ })
-    if (-not $epgIps.Count -and $ips.Count) {
-        try {
-            Add-Type -AssemblyName System.Net.Http
-            $hc = New-Object System.Net.Http.HttpClient; $hc.Timeout = [TimeSpan]::FromSeconds(4)
-            $jobs = @($ips | ForEach-Object { [pscustomobject]@{ Ip = $_; Task = $hc.GetStringAsync("http://$_/cgi-bin/webcmd?screen=EpgDisplay") } })
-            try { [void][Threading.Tasks.Task]::WaitAll(@($jobs | ForEach-Object { $_.Task }), 4500) } catch {}
-            foreach ($j in $jobs) { if ($j.Task.Status -eq 'RanToCompletion') { $bl = Get-EpgBoxLines $j.Task.Result; if ($bl -and $bl.Count) { $epgIps += $j.Ip } } }
-            $hc.Dispose()
-        } catch {}
-    }
-    if ($epgIps.Count) { $ips = @($ips | Where-Object { $epgIps -contains $_ }) }      # none found: open them all
-    $urls = @($ips | ForEach-Object { "http://$_/" })      # the blade's main page (lighter than the Overview)
-    # streamers and other devices from installer question 19 (opened even if they don't answer yet)
-    foreach ($x in @("$ExtraTabs" -split '[,\s]+' | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+(:\d+)?$' })) { $urls += "http://$x/" }
-    foreach ($h in $alwaysOpen) {
-        # WebSTX: sign in with the backend user/password saved by the installer (question 14), so no sign-in box
-        $u = "http://$h/"; $why = ''
-        if (-not "$SystemResetHost") { $why = 'no WebSTX address saved (installer question 14 was skipped or set to none)' }
-        elseif ($h -ne "$SystemResetHost") { $why = "installer question 14 has $SystemResetHost, not $h" }
-        elseif (-not "$SystemResetUser" -or -not "$SystemResetSecret") { $why = 'no WebSTX user/password saved (installer question 14)' }
-        else {
-            # a blank password is fine - it's what the installer's login check accepted
-            try { $pw = "$(Unprotect-ResetPassword $SystemResetSecret)"; $u = "http://$([uri]::EscapeDataString("$SystemResetUser")):$([uri]::EscapeDataString($pw))@$h/"; $why = "signing in as $SystemResetUser$(if (-not $pw) { ' (blank password)' })" }
-            catch { $why = "the saved password couldn't be read on this PC ($($_.Exception.Message))" }
-        }
-        Write-Log "Open blades: WebSTX $h - $why"; Write-Host "WebSTX $h - $why"
-        $urls += $u
-    }
-    $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
-                "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe") | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-    try {
-        # all tabs in one go (only a few light pages now) - Chrome then shows the FIRST tab
-        $exe = if ($chrome) { $chrome } else { 'chrome' }
-        Start-Process -FilePath $exe -ArgumentList (@('--new-window', '--hide-crash-restore-bubble') + $urls) -ErrorAction Stop
-        Write-Log "Opened Chrome with: $((@($ips) + @($alwaysOpen)) -join ', ')"
-    } catch { foreach ($u in $urls) { Start-Process $u }; Write-Log "Chrome not found - opened them in the default browser" }
-    exit 0
 }
 
 if ($MakeEpg) {
@@ -1234,225 +728,89 @@ if ($MakeEpg) {
         $cur = if ($PageUrl -match '^https?://([^/]+)') { $Matches[1] } else { '' }
         $a = Read-Host "COM3000 IP address [$cur]"
         if ("$a".Trim()) { $PageUrl = "http://$("$a".Trim())/cgi-bin/webcmd?screen=Overview" }
+        $e = Read-Host 'EPG page IP address (Enter = same as the COM3000)'
+        if ("$e".Trim()) { $EpgIp = "$e".Trim() }
         $n = Read-Host 'Location name (for the file names)'
         if ("$n".Trim()) { $SiteName = "$n".Trim() }
     }
     Write-Host "Building the EPG list for $SiteName from the Overview page..." -ForegroundColor Cyan
     try {
-        $ov = Get-ComOverview
-        $ovHtml = $ov.Html
-
-        # every blade (card) on the Overview page, plus the EPG address from Settings if it's another one
-        $blades = New-Object System.Collections.ArrayList
-        foreach ($sl in @($ov.Data.Slots | Where-Object { "$($_.Ip)" -match '^\d+\.\d+\.\d+\.\d+$' } | Sort-Object { [int]$_.Slot })) {
-            [void]$blades.Add([pscustomobject]@{ Name = "Slot $($sl.Slot)"; Ip = "$($sl.Ip)"; Html = $null; Lines = $null })
-        }
-        $comNow = Get-ComIp
-        if ($comNow -and -not ($blades | Where-Object { $_.Ip -eq $comNow })) {
-            [void]$blades.Insert(0, [pscustomobject]@{ Name = 'COM3000'; Ip = $comNow; Html = $null; Lines = $null })
-        }
-        if ("$EpgIp".Trim() -and -not ($blades | Where-Object { $_.Ip -eq "$EpgIp".Trim() })) {
-            [void]$blades.Add([pscustomobject]@{ Name = 'EPG'; Ip = "$EpgIp".Trim(); Html = $null; Lines = $null })
-        }
-        Write-Host ''
-        Write-Host 'EPG on each blade right now:'
-        for ($i = 0; $i -lt $blades.Count; $i++) {
-            $bl = $blades[$i]
-            try { $bl.Html = Get-PageHtml "http://$($bl.Ip)/cgi-bin/webcmd?screen=EpgDisplay"; $bl.Lines = Get-EpgBoxLines $bl.Html } catch {}
-            $what = if ($null -eq $bl.Html) { 'not answering' } elseif ($null -eq $bl.Lines) { 'no EPG page' } elseif ($bl.Lines.Count -eq 0) { 'empty' } else { "$($bl.Lines.Count) lines" }
-            Write-Host ("  {0}) {1,-7} {2,-15}  {3}" -f ($i + 1), $bl.Name, $bl.Ip, $what)
-        }
-        $usable = @(for ($i = 0; $i -lt $blades.Count; $i++) { if ($null -ne $blades[$i].Lines) { $i } })
-        if ($usable.Count -eq 0) { throw 'No blade has an EPG page that answered.' }
-        $withList = @($usable | Where-Object { $blades[$_].Lines.Count -gt 0 })
-        $def = if ($withList.Count) { $withList } else { @($usable[0]) }
-        $defTxt = ($def | ForEach-Object { $_ + 1 }) -join ','
-        $pick = @()
-        for ($try = 0; $try -lt 5; $try++) {
-            $a = Read-Host "Put the EPG on which blade(s)? Numbers like 1,2 [$defTxt]"
-            if (-not "$a".Trim()) { $pick = @($def); break }
-            $nums = @("$a" -split '[,\s]+' | Where-Object { $_ } | ForEach-Object { $v = 0; if ([int]::TryParse($_, [ref]$v)) { $v - 1 } else { -1 } })
-            if ($nums.Count -and -not @($nums | Where-Object { $usable -notcontains $_ }).Count) { $pick = @($nums | Select-Object -Unique); break }
-            Write-Host "  Please enter numbers from the list (only blades with an EPG page), like 1,2." -ForegroundColor Yellow
-        }
-        if ($null -eq $pick -or $pick.Count -eq 0) { $pick = @($def) }
-
-        # Each blade keeps ITS OWN list (numbers, guide, community lines) - only the DIRECTV numbers are fixed
-        # to match the tuners. An empty blade gets a copy of the fullest list.
-        $ref = $blades[@($pick | Sort-Object { -$blades[$_].Lines.Count })[0]]
-        $start = 3; $guidePort = 20; $guideVirt = 0; $community = New-Object System.Collections.ArrayList
-        $askNum = {
-            param([string]$Prompt, [int]$Default, [int]$Min, [int]$Max, [string]$Example, [bool]$AllowNone)
-            for ($try = 0; $try -lt 5; $try++) {
-                $a = "$(Read-Host "  $Prompt [$(if ($Default) { $Default } else { 'none' })]")".Trim() -replace '-0$', ''
-                if (-not $a) { return $Default }
-                if ($AllowNone -and $a -match '^(none|no|0)$') { return 0 }
-                $v = 0; if ([int]::TryParse($a, [ref]$v) -and $v -ge $Min -and $v -le $Max) { return $v }
-                Write-Host "  Please enter a number like $Example$(if ($AllowNone) { ', or none' })." -ForegroundColor Yellow
-            }
-            return $Default
-        }
-        # community / internal channels (from an encoder - not on the Overview page); $taken = number -> what uses it
-        $askCommunity = {
-            param([hashtable]$taken)
-            for ($k = 1; $k -le 10; $k++) {
-                $nm = "$(Read-Host "  Community channel $k name (e.g. Emerald Oaks Channel; Enter = $(if ($k -eq 1) { 'none' } else { 'done' }))")".Trim()
-                if (-not $nm) { break }
-                $nm = ($nm -replace '\s+', '_') -replace '[^\w\-]', ''
-                $suggest = 2; while ($taken.ContainsKey($suggest)) { $suggest++ }
-                $cv = 0
-                for ($try = 0; $try -lt 5; $try++) {
-                    $cv = & $askNum "  Its virtual channel" $suggest 1 9999 '3' $false
-                    if ($taken.ContainsKey($cv)) { Write-Host "  $cv-0 is already $($taken[$cv]) - pick another number." -ForegroundColor Yellow; $cv = 0 } else { break }
-                }
-                if (-not $cv) { continue }
-                $cp = 0
-                for ($try = 0; $try -lt 5 -and -not $cp; $try++) {
-                    $a = "$(Read-Host '    Its QAM port (e.g. 737 or 738)')".Trim()
-                    $v = 0; if ([int]::TryParse($a, [ref]$v) -and $v -ge 1 -and $v -le 65535) { $cp = $v } else { Write-Host '    Please enter the port number from the encoder / QAM setup.' -ForegroundColor Yellow }
-                }
-                if (-not $cp) { Write-Host "    Skipped $nm - no port." -ForegroundColor Yellow; continue }
-                [void]$community.Add([pscustomobject]@{ Name = $nm; Virt = $cv; Port = $cp }); $taken[$cv] = $nm
-            }
-        }
-        $isChan  = { param($l) $l -match '^\d+-\d+\s+\d+-\d+-(hd|sd)\b' }
-        $isGuide = { param($l) $l -match '^\d+-\d+\s+NEPG' }
-        $isComm  = { param($l) $l -match '^\d+-\d+\s+N' -and $l -notmatch '^\d+-\d+\s+NEPG' }
-        $withChan = @($pick | Where-Object { @($blades[$_].Lines | Where-Object { & $isChan $_ }).Count -gt 0 })
-        $noGuide = @(); $noComm = @()
-        if ($withChan.Count -eq 0) {
-            Write-Host ''
+        $ovHtml = (Get-ComOverview).Html
+        $epgHost = if ("$EpgIp".Trim()) { "$EpgIp".Trim() } else { Get-ComIp }
+        $epgHtml = Get-PageHtml "http://$epgHost/cgi-bin/webcmd?screen=EpgDisplay"
+        # new location (no channels in the EPG yet): which virtual channel does the first tuner get?
+        $start = 3
+        $em = [regex]::Match($epgHtml, "(?is)<textarea[^>]*name=['""]?EpgList['""]?[^>]*>(.*?)</textarea>")
+        if ($em.Success -and -not (@(Get-HtmlText $em.Groups[1].Value) | Where-Object { $_ -match '^\s*\d+-\d+\s+\d+-\d+-(hd|sd)\b' })) {
             Write-Host 'The EPG has no channels yet - this looks like a new location.' -ForegroundColor Yellow
-            $guideVirt = & $askNum 'Guide channel on virtual channel (none = no guide line)' 2 1 9999 '2' $true
-            if ($guideVirt) {
-                Write-Host '  Guide port: 20 for most locations (401 / AEP guide); with GuideChannel + PSIP on, use the DestPort (e.g. 753).'
-                $guidePort = & $askNum 'Guide channel port' 20 1 65535 '20 or 753' $false
-            }
-            $taken = @{}; if ($guideVirt) { $taken[$guideVirt] = 'the guide' }
-            Write-Host '  Community / internal channels (from an encoder):'
-            & $askCommunity $taken
-            Write-Host '  The first tuner (slot 1, tuner 1) gets the next number, the next tuner the one after, and so on'
-            Write-Host '  (numbers already used by the guide or a community channel are skipped).'
-            $after = 2; if ($taken.Count) { $after = (@($taken.Keys) | Measure-Object -Maximum).Maximum }
-            $start = & $askNum 'Start the tuners at virtual channel' ([int]$after + 1) 1 9999 '3 or 100' $false
-        } else {
-            # blades with channels but no guide / no community line: offer to add them there
-            $noGuide = @($withChan | Where-Object { -not @($blades[$_].Lines | Where-Object { & $isGuide $_ }).Count })
-            $noComm  = @($withChan | Where-Object { -not @($blades[$_].Lines | Where-Object { & $isComm $_ }).Count })
-            $taken = @{}
-            foreach ($i in $withChan) { foreach ($l in $blades[$i].Lines) { if ($l -match '^(\d+)-0\s') { $taken[[int]$Matches[1]] = 'used' } } }
-            if ($noGuide.Count) {
-                Write-Host ''
-                Write-Host ("No guide channel line on: " + (($noGuide | ForEach-Object { "$($blades[$_].Name) ($($blades[$_].Ip))" }) -join ', ')) -ForegroundColor Yellow
-                $guideVirt = & $askNum 'Add the guide there on virtual channel, e.g. 2 (Enter = leave it out)' 0 1 9999 '2' $true
-                if ($guideVirt -and $taken.ContainsKey($guideVirt)) { Write-Host "  $guideVirt-0 is already used - guide not added." -ForegroundColor Yellow; $guideVirt = 0 }
-                if ($guideVirt) {
-                    Write-Host '  Guide port: 20 for most locations (401 / AEP guide); with GuideChannel + PSIP on, use the DestPort (e.g. 753).'
-                    $guidePort = & $askNum 'Guide channel port' 20 1 65535 '20 or 753' $false
-                    $taken[$guideVirt] = 'the guide'
-                }
-            }
-            if ($noComm.Count) {
-                Write-Host ''
-                Write-Host ("No community / internal channel on: " + (($noComm | ForEach-Object { "$($blades[$_].Name) ($($blades[$_].Ip))" }) -join ', ') + ". Add one? (Enter = no)") -ForegroundColor Yellow
-                & $askCommunity $taken
+            Write-Host '  The first tuner (slot 1, tuner 1) gets this virtual channel, the next one the number after it, and so on.'
+            Write-Host '  The guide channel goes on 2-0 when you start at 3 or higher.'
+            for ($try = 0; $try -lt 5; $try++) {
+                $a = Read-Host '  Start at virtual channel [3]'
+                $a = "$a".Trim() -replace '-0$', ''
+                if (-not $a) { break }
+                $v = 0; if ([int]::TryParse($a, [ref]$v) -and $v -ge 1 -and $v -le 9999) { $start = $v; break }
+                Write-Host '  Please enter a number like 3 or 100.' -ForegroundColor Yellow
             }
         }
-
-        # build each chosen blade's list
-        $desk = Get-EpgCopyDir
+        $r = Build-EpgFromOverview $ovHtml $epgHtml $start
+        if ($start -le 2) { Write-Host '  (Starting at 1 or 2 leaves no room for the guide on 2-0 - add the guide line yourself if you want one.)' -ForegroundColor Yellow }
+        $desk = [Environment]::GetFolderPath('Desktop'); if (-not $desk) { $desk = $ScriptDir }
         $safe = ($SiteName -replace '[\\/:*?"<>|]', '').Trim()
-        $refIdx = if ($withChan.Count) { @($withChan | Sort-Object { -$blades[$_].Lines.Count })[0] } else { $pick[0] }
-        $refBuilt = Build-EpgFromOverview $ovHtml $blades[$refIdx].Html $start $guidePort $(if ($noGuide -contains $refIdx -or -not $withChan.Count) { $guideVirt } else { 0 }) $(if ($noComm -contains $refIdx -or -not $withChan.Count) { $community } else { @() })
-        $plan = foreach ($i in $pick) {
-            $bl = $blades[$i]
-            if ($withChan -contains $i) {
-                $rb = if ($i -eq $refIdx) { $refBuilt } else { Build-EpgFromOverview $ovHtml $bl.Html $start $guidePort $(if ($noGuide -contains $i) { $guideVirt } else { 0 }) $(if ($noComm -contains $i) { $community } else { @() }) }
-                $note = if (($bl.Lines -join '|') -eq ($rb.Lines -join '|')) { 'no change (submitting again also refreshes the guide)' } else { "$($rb.Changes.Count) change(s)" }
-                [pscustomobject]@{ Blade = $bl; Lines = $rb.Lines; Changes = @($rb.Changes); Note = $note; NoQam = $rb.NoQam }
-            } else {
-                [pscustomobject]@{ Blade = $bl; Lines = $refBuilt.Lines; Changes = @("This blade's EPG is empty - it gets a copy of $($blades[$refIdx].Name)'s list ($($refBuilt.Lines.Count) lines).") + @($refBuilt.Changes); Note = "empty now - gets a copy of $($blades[$refIdx].Name)'s list ($($refBuilt.Lines.Count) lines)"; NoQam = $refBuilt.NoQam }
-            }
-        }
-        if ($start -le 2 -and -not $withChan.Count) { Write-Host '  (Starting at 1 or 2 leaves no room for the guide on 2-0 - add the guide line yourself if you want one.)' -ForegroundColor Yellow }
-
+        $file = Join-Path $desk "$safe EPG from Overview.txt"
+        Set-Content -Path $file -Value $r.Lines -Encoding ASCII
+        $copied = $false; try { Set-Clipboard -Value ($r.Lines -join "`r`n"); $copied = $true } catch {}
         Write-Host ''
-        foreach ($p in $plan) {
-            $bl = $p.Blade
-            Write-Host "$($bl.Name) ($($bl.Ip)):" -ForegroundColor Cyan
-            if (($bl.Lines -join '|') -eq ($p.Lines -join '|')) { Write-Host '  Already matches the Overview page - nothing to change.' -ForegroundColor Green }
-            else { foreach ($c in $p.Changes) { Write-Host "  $c" -ForegroundColor $(if ($c -match '^(REMOVED|CHECK|ADDED|MOVED|This blade)') { 'Yellow' } else { 'Green' }) } }
-        }
-        if ($plan[0].NoQam) { Write-Host "  ($($plan[0].NoQam) tuner(s) have a channel but no QAM output picked, so no TV can get them - left out.)" -ForegroundColor Gray }
-        Write-Host ''
-        Write-Host 'Ready to submit to:' -ForegroundColor Cyan
-        foreach ($p in $plan) { Write-Host ("  {0,-7} {1,-15}  {2}" -f $p.Blade.Name, $p.Blade.Ip, $p.Note) }
-        Write-Host '  Each blade keeps its own list, checkboxes and settings - only wrong DIRECTV numbers are fixed.' -ForegroundColor Gray
-        Write-Host ''
-        if ($script:EpgSubmitEnabled) {
-            $ans = "$(Read-Host 'Type YES to submit now, TABS to open the filled-in pages in Chrome instead, or Enter to cancel')".Trim()
+        if ($r.Changes.Count) {
+            Write-Host "Changes compared with the EPG page now ($($r.Changes.Count)):" -ForegroundColor Yellow
+            foreach ($c in $r.Changes) { Write-Host "  $c" -ForegroundColor $(if ($c -match '^(REMOVED|CHECK|ADDED)') { 'Yellow' } else { 'Green' }) }
         } else {
-            Write-Host 'Submitting straight from here is turned off for now - you check each page and press Submit in Chrome.' -ForegroundColor Yellow
-            $ans = "$(Read-Host 'Type TABS to open the filled-in pages in Chrome, or Enter to cancel')".Trim()
-            if ($ans -match '^(yes|y)$') { $ans = 'tabs' }
+            Write-Host 'The EPG page already matches the Overview page - nothing to change.' -ForegroundColor Green
         }
-
-        if ($ans -match '^(yes|y)$') {
-            # one copy of every blade's current EPG list first (replaced each time), so it can be put back.
-            # Not the daily backup file - that one goes to Google Drive.
-            $bkOk = $false
-            try {
-                $copy = Join-Path $desk "$safe EPG before submit.txt"
-                $txt = @("$SiteName - EPG lists before submitting, $(Get-Date -Format 'ddd MM/dd/yyyy h:mm tt')", '')
-                foreach ($bl in $blades) { if ($null -ne $bl.Lines) { $txt += @("EPG on $($bl.Name) $($bl.Ip)", '') + $bl.Lines + @('', '') } }
-                Set-Content -Path $copy -Value $txt -Encoding UTF8 -ErrorAction Stop
-                $bkOk = $true; Write-Host "Current EPG lists saved first: $copy" -ForegroundColor Gray; Write-Log "EPG lists saved before submitting: $copy"
-            } catch { Write-Host "Couldn't save a copy of the current EPG lists ($(Get-CleanError $_))." -ForegroundColor Yellow }
-            if (-not $bkOk -and "$(Read-Host 'Submit anyway? Type YES')".Trim() -notmatch '^(yes|y)$') { Write-Host 'Cancelled - nothing was submitted.'; return }
-            foreach ($p in $plan) {
-                $bl = $p.Blade
-                try {
-                    $page = Get-PageHtml "http://$($bl.Ip)/cgi-bin/webcmd?screen=EpgDisplay"       # fresh copy of that blade's own settings
-                    [void](Get-PageHtml (Get-EpgSubmitUrl $page $bl.Ip $p.Lines))
-                    Start-Sleep -Seconds 2
-                    $after = Get-EpgBoxLines (Get-PageHtml "http://$($bl.Ip)/cgi-bin/webcmd?screen=EpgDisplay")
-                    if ($after -and (($after -join '|') -eq ($p.Lines -join '|'))) {
-                        Write-Host "  $($bl.Name) ($($bl.Ip)): saved - $($after.Count) lines" -ForegroundColor Green
-                        Write-Log "EPG submitted on $($bl.Ip) ($($after.Count) lines) by Make EPG"
-                    } else {
-                        # SAFETY NET: put the blade's old list back
-                        $fixed = $false
-                        if ($bl.Lines.Count) {
-                            try { [void](Get-PageHtml (Get-EpgSubmitUrl (Get-PageHtml "http://$($bl.Ip)/cgi-bin/webcmd?screen=EpgDisplay") $bl.Ip $bl.Lines)); Start-Sleep -Seconds 2
-                                  $chk = Get-EpgBoxLines (Get-PageHtml "http://$($bl.Ip)/cgi-bin/webcmd?screen=EpgDisplay"); $fixed = (($chk -join '|') -eq ($bl.Lines -join '|')) } catch {}
-                        }
-                        Write-Host "  $($bl.Name) ($($bl.Ip)): the list didn't come out right ($(if ($after) { $after.Count } else { 0 }) lines) - $(if ($fixed) { 'the old list was put back.' } else { 'COULD NOT put the old list back - paste it from the backup.' })" -ForegroundColor Red
-                        Write-Log "EPG submit on $($bl.Ip) did not stick ($(if ($after) { $after.Count } else { 0 }) lines afterwards); old list put back: $fixed"
-                    }
-                } catch { Write-Host "  $($bl.Name) ($($bl.Ip)): FAILED - $(Get-CleanError $_)" -ForegroundColor Red }
-            }
-        } elseif ($ans -match '^tabs?$') {
+        if ($r.NoQam) { Write-Host "  ($($r.NoQam) tuner(s) have a channel but no QAM output picked, so no TV can get them - left out.)" -ForegroundColor Gray }
+        Write-Host ''
+        Write-Host "$($r.Lines.Count) EPG lines saved to: $file"
+        # A ready-to-submit copy of the EPG page: the COM3000's own EPG form with every setting as it is now,
+        # and the new list already in the box. Nothing is sent until you press Submit.
+        $page = $null
+        try {
+            $fm = [regex]::Match($epgHtml, "(?is)<form\b[^>]*>(?:(?!</form>).)*?name=['""]?EpgList['""]?.*?</form>")
+            if (-not $fm.Success) { throw 'EPG form not found' }
+            $form = $fm.Value
+            $enc = [System.Net.WebUtility]::HtmlEncode(($r.Lines -join "`r`n"))
+            $form = [regex]::Replace($form, "(?is)(<textarea[^>]*name=['""]?EpgList['""]?[^>]*>).*?(</textarea>)", { param($mm) $mm.Groups[1].Value + $enc + $mm.Groups[2].Value })
+            $form = [regex]::Replace($form, "(?i)action=['""][^'""]*['""]", "action='http://$epgHost/cgi-bin/webcmd'", 1)
+            $form = [regex]::Replace($form, "(?i)<input[^>]*name=['""]?(EpgLoad|EpgDisable)['""]?[^>]*>[^<\r\n]*", '')     # only the normal Submit stays
+            $form = $form -replace '(&lt;|<)-\s*Load currently playing channels\.', ''
+            $form = [regex]::Replace($form, "(?i)<input type=['""]submit['""]>", "<input type='submit' value='Submit to the COM3000' style='font-size:16px;padding:6px 18px;background:#1f7a3f;color:#fff;border:0;border-radius:4px;cursor:pointer'>", 1)
+            $chg = if ($r.Changes.Count) { '<ul>' + (($r.Changes | ForEach-Object { '<li>' + [System.Net.WebUtility]::HtmlEncode($_) + '</li>' }) -join '') + '</ul>' } else { '<p><b>The EPG already matches the Overview page - nothing to change.</b></p>' }
+            $html = @"
+<!doctype html><html><head><meta charset='utf-8'><title>$safe - EPG ready to submit</title>
+<style>body{font:14px Segoe UI,Arial,sans-serif;margin:16px;max-width:1000px} .box{background:#fff8d6;border:1px solid #e0c96b;padding:10px 14px;border-radius:6px;margin-bottom:14px}
+li{font-family:Consolas,monospace;font-size:13px} pre{font-size:13px}</style></head><body>
+<h2>$safe - EPG built from the Overview page</h2>
+<div class='box'><b>Nothing has been sent yet.</b> This is the COM3000's own EPG form for <b>$epgHost</b> with every setting as it is now, and the new channel list already in the box.
+Look it over, then press <b>Submit to the COM3000</b> at the bottom. Run Backup Now first so you can go back.</div>
+<h3>Changes</h3>$chg
+<pre style='font:13px Consolas,monospace'>$form</pre>
+</body></html>
+"@
+            $page = Join-Path $desk "$safe EPG ready to submit.html"
+            Set-Content -Path $page -Value $html -Encoding UTF8
+        } catch { Write-Host "(Couldn't make the ready-to-submit page: $(Get-CleanError $_))" -ForegroundColor Yellow }
+        Write-Host 'Make a backup first (Backup Now) so you can go back if needed.' -ForegroundColor Gray
+        if ($page) {
+            Write-Host 'Opening the EPG page with the new list filled in - check it, then press "Submit to the COM3000".' -ForegroundColor Cyan
+            # Chrome if it's installed: opens as a new tab in the Chrome window you already have (or starts Chrome)
             $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
                         "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe") | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
-            foreach ($p in $plan) {
-                $bl = $p.Blade
-                try {
-                    $changes = if (($bl.Lines -join '|') -eq ($p.Lines -join '|')) { @() } else { $p.Changes }
-                    $html = New-EpgSubmitPage $bl.Html $p.Lines $bl.Ip $bl.Name $changes ''
-                    $pg = Join-Path $desk "$safe EPG ready to submit - $($bl.Name) $($bl.Ip).html"
-                    Set-Content -Path $pg -Value $html -Encoding UTF8
-                    Write-Host "Opening the filled-in EPG page for $($bl.Name) ($($bl.Ip)) - check its boxes, then press Submit." -ForegroundColor Cyan
-                    $opened = $false
-                    foreach ($exe in @($chrome, 'chrome') | Where-Object { $_ }) {        # 'chrome' = wherever Windows has it registered
-                        if ($opened) { break }
-                        try { Start-Process $exe -ArgumentList "`"$pg`"" -ErrorAction Stop; $opened = $true } catch {}
-                    }
-                    if (-not $opened) { try { Start-Process $pg -ErrorAction Stop; $opened = $true; Write-Host '  (Chrome not found - opened in the default browser.)' -ForegroundColor Yellow } catch {} }
-                    if (-not $opened) { Write-Host "  Open it yourself: $pg" -ForegroundColor Yellow }
-                } catch { Write-Host "Couldn't make the page for $($bl.Name) ($($bl.Ip)): $(Get-CleanError $_)" -ForegroundColor Yellow }
-            }
+            try {
+                if ($chrome) { Start-Process $chrome -ArgumentList "`"$page`"" -ErrorAction Stop }
+                else { Start-Process $page -ErrorAction Stop }
+            } catch { Write-Host "Open it from the desktop: $page" -ForegroundColor Yellow }
         } else {
-            Write-Host 'Cancelled - nothing was submitted. '
+            if ($copied) { Write-Host 'The list is copied - on the EPG page, click in the list box, press Ctrl+A, then Ctrl+V, and submit.' -ForegroundColor Cyan }
+            try { Start-Process notepad.exe -ArgumentList "`"$file`"" -ErrorAction Stop } catch {}
         }
     } catch {
         Write-Host "Could not build the EPG list: $(Get-CleanError $_)" -ForegroundColor Red
@@ -1461,7 +819,7 @@ if ($MakeEpg) {
 }
 
 if ($BackupNow) {
-    Write-Host "Backing up TuneAll and EPG for $SiteName..." -ForegroundColor Cyan
+    Write-Host "Backing up TuneAll and EPG for $SiteName...\" -ForegroundColor Cyan
     try {
         $b = Invoke-Backup
         Write-Host "Saved $($b.TuneLines) Tune all lines and $($b.EpgLines) EPG lines to:" -ForegroundColor Green
@@ -1578,93 +936,6 @@ function Get-GuideMatch([string]$Maj, [string]$Min, $Live) {
     return @{ Mark = 'OK'; Why = '' }
 }
 
-# The EPG is copied onto several blades. Check every blade's copy against the Overview page and say
-# WHICH blade is wrong. $BladeEpgs = @{ '192.168.3.18' = <EPG page html>; ... }
-# The scrolling guide (2-0) can be watched when a blade sends its own copy of the guide to THIS PC:
-# on that blade's EPG page DestIP = this PC, DestPort = e.g. 5000, GuideChannel ticked.
-# (The blade feeding the guide to the QAM is never touched.)
-function Set-PickerGuideStream($Channels, [hashtable]$BladeEpgs) {
-    # this PC's addresses - looked up once (fast .NET call, no WMI: Get-NetIPAddress could freeze the window)
-    if (-not $script:MyIps) {
-        $script:MyIps = @()
-        try {
-            foreach ($ni in [System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces()) {
-                foreach ($ua in $ni.GetIPProperties().UnicastAddresses) { if ($ua.Address.AddressFamily -eq 'InterNetwork') { $script:MyIps += "$($ua.Address)" } }
-            }
-        } catch {}
-    }
-    $mine = $script:MyIps
-    $url = $null; $from = ''
-    foreach ($h in @($BladeEpgs.Keys | Sort-Object)) {
-        $html = "$($BladeEpgs[$h])"
-        $ip = [regex]::Match($html, "(?i)name=['""]?EpgDestIp['""]?\s+value=['""]?([\d.]+)").Groups[1].Value
-        $port = [regex]::Match($html, "(?i)name=['""]?destPort['""]?\s+value=['""]?(\d+)").Groups[1].Value
-        $on = $html -match "(?i)<input[^>]*value=['""]?GuideChannel['""]?[^>]*\bchecked"
-        if ($on -and $ip -and $port -and $port -ne '0' -and $mine -contains $ip) { $url = "udp://@:$port"; $from = $h; break }
-    }
-    foreach ($c in @($Channels | Where-Object { $_.Internal -and "$($_.RawName)" -match '^EPG' })) {
-        if ($url) { $c.Url = $url; $c.Skip = $false; $c.Dtv = 'stream'; $c.GuideWhy = "guide copy from $from" }
-        elseif ($c.Dtv -eq 'stream' -and "$($c.GuideWhy)" -like 'guide copy from*') { $c.Url = $null; $c.Skip = $true; $c.Dtv = 'COM3000'; $c.GuideWhy = '' }
-    }
-}
-
-function Set-PickerBladeChecks($Channels, [string]$OverviewHtml, [hashtable]$BladeEpgs) {
-    $maps = [ordered]@{}
-    foreach ($ip in @($BladeEpgs.Keys | Sort-Object { [version]("$_" -replace '[^\d.]', '') })) {
-        $lines = Get-EpgBoxLines $BladeEpgs[$ip]
-        if (-not $lines) { continue }
-        $m = @{}
-        foreach ($l in $lines) { $x = [regex]::Match($l, '^(\d+-\d+)\s+(\d+)-(\d+)-(hd|sd)\b', 'IgnoreCase'); if ($x.Success) { $m[$x.Groups[1].Value] = @{ Maj = $x.Groups[2].Value; Min = $x.Groups[3].Value } } }
-        if ($m.Count) { $maps[$ip] = $m }
-    }
-    if ($maps.Count -eq 0) { return }
-    $live = @{}
-    foreach ($c in (Get-ComData $OverviewHtml).Channels) { if (-not $live.ContainsKey($c.Virt)) { $live[$c.Virt] = $c } }
-    foreach ($c in $Channels) {
-        if ($c.Internal -or $c.ComMade) { continue }
-        $l = $live[$c.Virt]
-        $why = New-Object System.Collections.ArrayList
-        foreach ($ip in $maps.Keys) {
-            $e = $maps[$ip][$c.Virt]
-            if (-not $e) {
-                if ($l) { [void]$why.Add("missing from the EPG on $ip") }
-            } elseif (-not $l) { [void]$why.Add("EPG on $ip lists DIRECTV $($e.Maj) but no tuner sends it")
-            } elseif ($l.NoChannel) { [void]$why.Add("EPG on $ip says DIRECTV $($e.Maj) but the tuner has no channel (None)")
-            } elseif ("$($l.Major)" -ne $e.Maj -or ($e.Min -ne '65535' -and "$($l.Minor)" -and "$($l.Minor)" -ne $e.Min)) {
-                # same number but a different sub-channel (e.g. a game's alternate feed 652-1650): show both parts
-                $minDiff = "$($l.Major)" -eq $e.Maj
-                $eTxt = if ($minDiff) { "$($e.Maj)-$($e.Min)" } else { "$($e.Maj)" }
-                $lTxt = if ($minDiff) { "$($l.Major)-$($l.Minor)" } else { "$($l.Major)" }
-                [void]$why.Add("EPG on $ip says DIRECTV $eTxt, Overview tuner $($l.Slot)-$($l.Tuner) is on $lTxt")
-            }
-        }
-        if ($why.Count) {
-            # same problem on several blades -> say it once with all of them
-            $byText = [ordered]@{}
-            foreach ($w in $why) { $k = $w -replace '(on|from the EPG on) \d+\.\d+\.\d+\.\d+', '$1 #'; $ipw = [regex]::Match($w, '\d+\.\d+\.\d+\.\d+').Value; if (-not $byText.Contains($k)) { $byText[$k] = @() }; $byText[$k] += $ipw }
-            $c.Guide = 'X'
-            $c.GuideWhy = (@($byText.Keys | ForEach-Object { $_ -replace '#', ($byText[$_] -join ' and ') }) -join '; ')
-        } elseif ($c.Tune) { $c.Guide = 'OK'; $c.GuideWhy = '' }
-    }
-}
-
-# Short version of an EPG problem for the Notes column (the full sentence is in the tooltip / status bar):
-# "EPG on 192.168.3.18 says DIRECTV 265, Overview tuner 1-1-1 is on 202" -> ".18: EPG 265, tuner 202"
-function Get-GuideShort([string]$Why) {
-    $parts = foreach ($w in ($Why -split '; ')) {
-        $ips = @([regex]::Matches($w, '\d+\.\d+\.\d+\.(\d+)') | ForEach-Object { '.' + $_.Groups[1].Value }) -join '+'
-        $who = if ($ips) { "$($ips): " } else { '' }
-        if ($w -match 'says DIRECTV (\d+(?:-\d+)?), Overview tuner \S+ is on (\d+(?:-\d+)?)') { "$($who)EPG $($Matches[1]), tuner $($Matches[2])" }
-        elseif ($w -match '^EPG says (?:DIRECTV )?(\d+(?:-\d+)?), Overview tuner \S+ is on (\d+(?:-\d+)?)') { "EPG $($Matches[1]), tuner $($Matches[2])" }
-        elseif ($w -match 'missing from the EPG') { "$($who)missing from EPG" }
-        elseif ($w -match 'lists DIRECTV (\d+) but no tuner') { "$($who)EPG $($Matches[1]), no tuner" }
-        elseif ($w -match 'says DIRECTV (\d+) but the tuner has no channel') { "$($who)EPG $($Matches[1]), tuner None" }
-        elseif ($w -match '^not in the EPG') { 'not in the EPG' }
-        else { $w }
-    }
-    return ($parts -join '; ')
-}
-
 function Get-PickerChannels([string]$OverviewHtml, [string]$EpgHtml) {
     $names = @{}
     foreach ($c in (Get-JsRows (Get-JsArrayText $OverviewHtml 'channelArray'))) {
@@ -1704,11 +975,8 @@ function Get-PickerChannels([string]$OverviewHtml, [string]$EpgHtml) {
         $l = $live[$virt]
         # Does the guide (EPG) match what the tuner on the Overview page is actually sending?
         $gm = Get-GuideMatch $maj $min $l
-        # EPG wrong: tune what the room tuner is really on, so you see what the TVs get on this channel
-        $tune = "$maj-$min"; $tunesTuner = $false
-        if ($gm.Mark -eq 'X' -and $l -and -not $l.NoChannel -and $l.Major -and $l.Major -ne '0') { $tune = "$($l.Major)-$($l.Minor)"; $tunesTuner = $true }
         [void]$list.Add([pscustomobject]@{
-            Virt = $virt; Name = "$name"; Dtv = $dtv; Tune = $tune; TunesTuner = $tunesTuner
+            Virt = $virt; Name = "$name"; Dtv = $dtv; Tune = "$maj-$min"
             Rate = $(if ($l) { $l.Rate } else { '' }); Snr = $(if ($l) { "$($l.Snr)" } else { '' })
             Skip = $false; Check = ''; Note = ''; Internal = $false; Port = 0; RawName = ''; Url = $null
             Guide = $gm.Mark; GuideWhy = $gm.Why
@@ -1833,9 +1101,7 @@ function Complete-PickerFetch($Job) {
         return $text
     } finally { $Job.PS.Dispose() }
 }
-# Stop() waits until a stuck web request gives up (it froze the window - "Not Responding");
-# BeginStop just asks it to stop and returns right away.
-function Stop-PickerFetch($Job) { try { [void]$Job.PS.BeginStop($null, $null) } catch {} }
+function Stop-PickerFetch($Job) { try { $Job.PS.Stop() } catch {}; try { $Job.PS.Dispose() } catch {} }
 
 # Live bitrate/SNR for one virtual channel from a fresh Overview page
 function Get-PickerLive([string]$Html, [string]$Virt) {
@@ -1850,8 +1116,7 @@ function Start-PickerVlc([string]$Vlc, [int]$Port, [string]$Source = '') {
     if (-not $Source) { $Source = "udp://@:$Port" }
     # --avcodec-hw=none: decode in software. Hardware decoding can crash VLC when the stream
     # changes format mid-way (which happens on every channel change, e.g. 720p <-> 1080i).
-    # --no-qt-video-autoresize: keep the VLC window the size you made it when the channel changes
-    $vlcArgs = @($Source, '--network-caching=2000', '--avcodec-hw=none', '--no-qt-video-autoresize',
+    $vlcArgs = @($Source, '--network-caching=2000', '--avcodec-hw=none',
                  '--extraintf=http', '--http-host=127.0.0.1', "--http-port=$($PickerVlcCtl.Port)", "--http-password=$($PickerVlcCtl.Password)")
     Start-Process $Vlc -ArgumentList $vlcArgs
 }
@@ -1964,7 +1229,7 @@ function Show-ChannelPicker {
              else { [void][System.Windows.Forms.MessageBox]::Show($t, 'COM3000 Channel Check', 'OK', $icon) } }
 
     # shared state (a hashtable, so the button handlers can change it)
-    $st = @{ Prefs = @{ Tuner = ''; Port = 1234; TourSeconds = 8; Bounds = ''; OnTop = 'yes'; KnownIps = @() }; Saved = $true; Updating = $false; LoadBlades = @{}; EpgHost = ''; EpgJobs = $null; EpgOvJob = $null; EpgNext = [datetime]::MaxValue; EpgStarted = [datetime]::MinValue; Self = $PSCommandPath; FixProc = $null }
+    $st = @{ Prefs = @{ Tuner = ''; Port = 1234; TourSeconds = 8; Bounds = ''; OnTop = 'yes'; KnownIps = @() }; Saved = $true; Updating = $false }
     try { if (Test-Path $PickerPrefsFile) { $j = Get-Content $PickerPrefsFile -Raw | ConvertFrom-Json
           foreach ($k in 'Tuner', 'Port', 'TourSeconds', 'Bounds', 'OnTop', 'KnownIps') { if ($j.$k) { $st.Prefs[$k] = $j.$k } } } } catch {}
     $st.PcIp = Get-PickerPcIp
@@ -1981,7 +1246,7 @@ function Show-ChannelPicker {
 
     # ---------- window ----------
     $f = New-Object System.Windows.Forms.Form
-    $f.Text = "COM3000 Channel Check - $SiteName   (v$ScriptVersion)"
+    $f.Text = "COM3000 Channel Check - $SiteName"
     $f.MinimumSize = New-Object System.Drawing.Size(460, 360)
     try { $ico = Join-Path $ScriptDir 'tv.ico'; if (Test-Path $ico) { $f.Icon = New-Object System.Drawing.Icon($ico) } } catch {}
     $f.TopMost = ($st.Prefs.OnTop -ne 'no')      # stays above VLC and other windows
@@ -2035,13 +1300,8 @@ function Show-ChannelPicker {
     $lblLoading.Font = New-Object System.Drawing.Font('Segoe UI', 13)
     $lblLoading.Text = "Loading line-up from the COM3000..."
     $lv.Controls.Add($lblLoading)
-    foreach ($c in @(@('Virt', 46), @('EPG', 34), @('Channel', 104), @('DIRECTV', 56), @('Bitrate', 66), @('SNR', 34), @('Check', 52), @('Notes', 140))) { [void]$lv.Columns.Add($c[0], $c[1]) }
+    foreach ($c in @(@('Virt', 52), @('EPG', 40), @('Channel', 110), @('DIRECTV', 58), @('Bitrate', 72), @('SNR', 38), @('Check', 62), @('Notes', 140))) { [void]$lv.Columns.Add($c[0], $c[1]) }
     $lv.ShowItemToolTips = $true
-    # Notes is the last column: let it use all the width that's left, so the notes aren't cut off
-    $fitNotes = { try { $used = 0; for ($ci = 0; $ci -lt $lv.Columns.Count - 1; $ci++) { $used += $lv.Columns[$ci].Width }
-                       $lv.Columns[$lv.Columns.Count - 1].Width = [Math]::Max(140, $lv.ClientSize.Width - $used - 4) } catch {} }
-    $lv.Add_Resize({ & $fitNotes })
-    $lv.Add_ColumnWidthChanged({ param($sender, $e) if ($e.ColumnIndex -lt $lv.Columns.Count - 1) { & $fitNotes } })
 
     $bottom = New-Object System.Windows.Forms.FlowLayoutPanel
     $bottom.Dock = 'Bottom'; $bottom.AutoSize = $true; $bottom.AutoSizeMode = 'GrowAndShrink'; $bottom.Padding = (New-Object System.Windows.Forms.Padding(6,6,6,0))
@@ -2056,8 +1316,6 @@ function Show-ChannelPicker {
     $bottom.Controls.Add($numSec); $bottom.Controls.Add((& $mkLabel 'sec'))
     $btnSave = & $mkBtn 'Save'
     $btnClear = & $mkBtn 'Clear'
-    $btnFixEpg = & $mkBtn 'Fix EPG'; $btnFixEpg.Margin = (New-Object System.Windows.Forms.Padding(12,3,3,3))
-    $btnFixEpg.BackColor = [System.Drawing.Color]::FromArgb(222, 234, 250)
 
     $status = New-Object System.Windows.Forms.StatusStrip
     $stLeft = New-Object System.Windows.Forms.ToolStripStatusLabel; $stLeft.Spring = $true; $stLeft.TextAlign = 'MiddleLeft'
@@ -2073,9 +1331,8 @@ function Show-ChannelPicker {
         param($it, $c)
         $it.UseItemStyleForSubItems = $false
         $it.SubItems[4].Text = $c.Rate; $it.SubItems[5].Text = $c.Snr
-        if ($c.Internal) { $it.SubItems[3].Text = $c.Dtv }
         $it.SubItems[6].Text = $(if ($c.Check) { $c.Check } elseif ($c.Internal -and -not $c.Url) { 'not viewable' } elseif ($c.Skip -and $c.Guide -ne 'X') { 'skip' } else { '' })
-        $it.SubItems[7].Text = $(if ($c.Note) { $c.Note } elseif ($c.GuideWhy) { Get-GuideShort $c.GuideWhy } else { '' })
+        $it.SubItems[7].Text = $(if ($c.Note) { $c.Note } elseif ($c.GuideWhy) { $c.GuideWhy } else { '' })
         $fore = if ($c.Low) { [System.Drawing.Color]::Red } elseif ($c.Skip -and -not $c.Check -and $c.Guide -ne 'X') { [System.Drawing.Color]::Gray } else { [System.Drawing.Color]::Black }
         $back = switch ($c.Check) { 'Good' { [System.Drawing.Color]::FromArgb(225, 248, 225) } 'Problem' { [System.Drawing.Color]::FromArgb(252, 222, 222) } default { [System.Drawing.Color]::White } }
         foreach ($si in $it.SubItems) { $si.ForeColor = $fore; $si.BackColor = $back }
@@ -2158,8 +1415,7 @@ function Show-ChannelPicker {
         try {
             Invoke-PickerTune $st.Prefs.Tuner $st.PcIp ([int]$st.Prefs.Port) $c.Tune
             $st.TunedAt = Get-Date
-            $shownDtv = if ($c.TunesTuner) { ($c.Tune -split '-')[0] + ' (what the TVs get)' } else { $c.Dtv }
-            & $setStatus ("Now on $($c.Virt)  $shownDtv $($c.Name)  (picture in VLC in a few seconds)" + $(if ($c.Guide -eq 'X') { "  -  EPG MISMATCH: $($c.GuideWhy)" } else { '' })) ($c.Guide -eq 'X')
+            & $setStatus ("Now on $($c.Virt)  $($c.Dtv) $($c.Name)  (picture in VLC in a few seconds)" + $(if ($c.Guide -eq 'X') { "  -  EPG MISMATCH: $($c.GuideWhy)" } else { '' })) ($c.Guide -eq 'X')
         } catch { & $setStatus "Could not tune: $(Get-CleanError $_)" $true }
         $f.Cursor = [System.Windows.Forms.Cursors]::Default
     })
@@ -2171,7 +1427,6 @@ function Show-ChannelPicker {
         $st.Channels[$i].Check = $what
         & $fillRow $lv.Items[$i] $st.Channels[$i]
         Save-PickerCheck $st.Channels
-        if ($what -ne 'Good') { & $setStatus "$($st.Channels[$i].Virt) marked as a problem - staying on it (N = add a note)."; return }      # stay on a problem channel
         $n = & $nextIndex $i 1 $true
         if ($n -ge 0) { & $select $n } else { & $setStatus 'End of the list.' }
     }
@@ -2255,12 +1510,7 @@ function Show-ChannelPicker {
         try {
             $ov  = Get-PageHtml $PageUrl
             $epgHost = if ("$EpgIp".Trim()) { "$EpgIp".Trim() } else { Get-ComIp }
-            $epgNow = Get-PageHtml "http://$epgHost/cgi-bin/webcmd?screen=EpgDisplay"
-            $new = Get-PickerChannels $ov $epgNow
-            $bladeEpgs = @{ $epgHost = $epgNow }
-            foreach ($h in @(Get-ComHosts)) { if ($h -ne $epgHost -and (Test-HostPort $h 1500)) { try { $bladeEpgs[$h] = Get-PageHtml "http://$h/cgi-bin/webcmd?screen=EpgDisplay" } catch {} } }
-            try { Set-PickerBladeChecks $new $ov $bladeEpgs } catch {}
-            try { Set-PickerGuideStream $new $bladeEpgs } catch {}
+            $new = Get-PickerChannels $ov (Get-PageHtml "http://$epgHost/cgi-bin/webcmd?screen=EpgDisplay")
             try { Set-PickerQamRates $new (Get-PageHtml "http://$(Get-ComIp)/cgi-bin/webcmd?screen=Qam") } catch {}
             # keep marks/notes for channels that didn't change; flag ones whose DIRECTV channel changed
             $changed = Merge-PickerMarks $new $st.Channels
@@ -2273,7 +1523,6 @@ function Show-ChannelPicker {
             & $fillList
             $i = 0; for ($k = 0; $k -lt $new.Count; $k++) { if ($new[$k].Virt -eq $sel) { $i = $k; break } }
             & $select $i
-            & $markFixBtn
             $st.Updating = $false
             $script:PickerSafeAt = [datetime]::MinValue      # re-check the spare tuner on the next change
             $sum = "Line-up refreshed: $($new.Count) channels"
@@ -2291,61 +1540,11 @@ function Show-ChannelPicker {
         Save-PickerCheck $st.Channels
         & $setStatus 'Cleared - starting a fresh check.'; $lv.Focus()
     })
-    # ---------- Fix EPG: opens the Make EPG window (it shows the changes and asks for YES before submitting) ----------
-    $markFixBtn = {
-        $nx = @($st.Channels | Where-Object { $_.Guide -eq 'X' }).Count
-        if ($nx) { $btnFixEpg.Text = "Fix EPG ($nx wrong)"; $btnFixEpg.BackColor = [System.Drawing.Color]::FromArgb(255, 214, 160) }
-        else { $btnFixEpg.Text = 'Fix EPG'; $btnFixEpg.BackColor = [System.Drawing.Color]::FromArgb(222, 234, 250) }
-    }
-    $btnFixEpg.Add_Click({
-        if ($st.FixProc -and -not $st.FixProc.HasExited) { & $msg 'The Make EPG window is already open.'; return }
-        try {
-            $exe = (Get-Process -Id $PID).Path
-            $st.FixProc = Start-Process -FilePath $exe -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$($st.Self)`"", '-MakeEpg') -PassThru -ErrorAction Stop
-            $f.TopMost = $false          # don't cover the Make EPG window
-            & $setStatus 'Make EPG is open in its own window - check the changes there and type YES to submit. The EPG marks here update when it closes.'
-        } catch { & $msg "Couldn't open Make EPG:`n$(Get-CleanError $_)" 'Error' }
-    })
-
     $btnSave.Add_Click({
         $p = @(Save-PickerReport $st.Channels $st.Prefs.Tuner)
         if ($p.Count) { & $msg ("Report saved on this PC:`n`n" + ($p -join "`n")) }
         else { & $msg 'The report could not be saved.' 'Error' }
     })
-    # ---------- EPG recheck: every minute, re-read the Overview and every blade's EPG in the background ----------
-    $epgTimer = New-Object System.Windows.Forms.Timer; $epgTimer.Interval = 1000
-    $epgTimer.Add_Tick({
-        if ($st.Updating -or -not $st.Channels) { return }
-        if ($st.FixProc -and $st.FixProc.HasExited) {
-            $st.FixProc = $null; $st.EpgNext = Get-Date
-            $f.TopMost = $chkTop.Checked
-            & $setStatus 'Make EPG closed - rechecking the EPG on every blade...'
-        }
-        if (-not $st.EpgJobs) {
-            if ((Get-Date) -lt $st.EpgNext) { return }
-            $st.EpgJobs = @{}; $st.EpgStarted = Get-Date
-            $st.EpgOvJob = Start-PickerFetch $PageUrl
-            foreach ($h in @(@(Get-ComHosts) + @($st.EpgHost) | Where-Object { $_ } | Select-Object -Unique)) { $st.EpgJobs[$h] = Start-PickerFetch "http://$h/cgi-bin/webcmd?screen=EpgDisplay" }
-            return
-        }
-        $pending = @(@($st.EpgJobs.Values) + @($st.EpgOvJob) | Where-Object { -not $_.Handle.IsCompleted }).Count
-        if ($pending -and ((Get-Date) - $st.EpgStarted).TotalSeconds -lt 20) { return }
-        $map = @{}; $ov = ''
-        foreach ($h in @($st.EpgJobs.Keys)) { $j = $st.EpgJobs[$h]; if ($j.Handle.IsCompleted) { try { $map[$h] = Complete-PickerFetch $j } catch {} } else { Stop-PickerFetch $j } }
-        if ($st.EpgOvJob.Handle.IsCompleted) { try { $ov = Complete-PickerFetch $st.EpgOvJob } catch {} } else { Stop-PickerFetch $st.EpgOvJob }
-        $st.EpgJobs = $null; $st.EpgOvJob = $null; $st.EpgNext = (Get-Date).AddSeconds(60)
-        if ($ov -notmatch 'cardArray' -or -not $map.Count -or $st.Updating) { return }
-        try {
-            $was = @($st.Channels | ForEach-Object { "$($_.Guide)|$($_.GuideWhy)|$($_.Url)" })
-            Set-PickerBladeChecks $st.Channels $ov $map
-            try { Set-PickerGuideStream $st.Channels $map } catch {}
-            $lv.BeginUpdate()
-            try { for ($k = 0; $k -lt $st.Channels.Count -and $k -lt $lv.Items.Count; $k++) { if ("$($st.Channels[$k].Guide)|$($st.Channels[$k].GuideWhy)|$($st.Channels[$k].Url)" -ne $was[$k]) { & $fillRow $lv.Items[$k] $st.Channels[$k] } } }
-            finally { $lv.EndUpdate() }
-            & $markFixBtn
-        } catch {}
-    })
-
     # ---------- live bitrate/SNR for the channel on screen (fetched in the background) ----------
     $st.Live = $null; $st.LiveNext = Get-Date
     $liveTimer = New-Object System.Windows.Forms.Timer; $liveTimer.Interval = 1000
@@ -2414,21 +1613,19 @@ function Show-ChannelPicker {
     $lv.Add_SelectedIndexChanged({ if ($lv.SelectedIndices.Count) { $c = $st.Channels[$lv.SelectedIndices[0]]; $stLive.Text = "LIVE $($c.Virt) $($c.Name): updating..."; $stLive.ForeColor = [System.Drawing.Color]::Gray; $st.LiveNext = Get-Date } })
 
     $f.Add_FormClosing({
-        $tourTimer.Stop(); $tuneTimer.Stop(); $liveTimer.Stop(); $loadTimer.Stop(); $epgTimer.Stop(); foreach ($j in @(@($st.EpgJobs.Values) + @($st.EpgOvJob))) { if ($j) { try { Stop-PickerFetch $j } catch {} } }
+        $tourTimer.Stop(); $tuneTimer.Stop(); $liveTimer.Stop(); $loadTimer.Stop()
         if ($st.Live) { Stop-PickerFetch $st.Live; $st.Live = $null }
         foreach ($j in @($st.LoadOv, $st.LoadEpg, $st.LoadQam)) { if ($j -and -not $j.Handle.IsCompleted) { Stop-PickerFetch $j } }
         $rb = if ($f.WindowState -eq 'Normal') { $f.Bounds } else { $f.RestoreBounds }
         $st.Prefs.Bounds = "$($rb.X),$($rb.Y),$($rb.Width),$($rb.Height)"; & $savePrefs
         if (-not $st.Updating -and $st.Channels.Count -gt 0) { Save-PickerCheck $st.Channels }   # never wipe saved marks if the line-up didn't load
-        # putting the spare tuner back to idle talks to the COM3000 (can take a while) - done AFTER the window is gone
-        $st.NeedRelease = [bool]($st.TunedAt -and $st.Prefs.Tuner)
+        if ($st.TunedAt -and $st.Prefs.Tuner) { try { [void](Invoke-PickerRelease $st.Prefs.Tuner) } catch {} }   # put the spare tuner back to idle
     })
     # ---------- loading: both COM3000 pages at once, in the background ----------
     $loadTimer = New-Object System.Windows.Forms.Timer; $loadTimer.Interval = 200
     $loadTimer.Add_Tick({
         $secs = [int]((Get-Date) - $st.LoadOv.Started).TotalSeconds
-        $bladesPending = @($st.LoadBlades.Values | Where-Object { -not $_.Handle.IsCompleted }).Count
-        if (-not ($st.LoadOv.Handle.IsCompleted -and $st.LoadEpg.Handle.IsCompleted) -or ($bladesPending -and $secs -lt 15)) {
+        if (-not ($st.LoadOv.Handle.IsCompleted -and $st.LoadEpg.Handle.IsCompleted)) {
             $stLeft.Text = "Loading line-up from the COM3000... $secs s"
             $lblLoading.Text = "Loading line-up from the COM3000...`n`n$secs s"
             if ($secs -gt 90) { $loadTimer.Stop(); Stop-PickerFetch $st.LoadOv; Stop-PickerFetch $st.LoadEpg
@@ -2440,13 +1637,6 @@ function Show-ChannelPicker {
             $ov  = Complete-PickerFetch $st.LoadOv
             $epg = Complete-PickerFetch $st.LoadEpg
             $st.Channels = Get-PickerChannels $ov $epg
-            $bladeEpgs = @{ $st.EpgHost = $epg }
-            foreach ($h in @($st.LoadBlades.Keys)) {
-                $j = $st.LoadBlades[$h]
-                if ($j.Handle.IsCompleted) { try { $bladeEpgs[$h] = Complete-PickerFetch $j } catch {} } else { Stop-PickerFetch $j }
-            }
-            try { Set-PickerBladeChecks $st.Channels $ov $bladeEpgs } catch {}
-            try { Set-PickerGuideStream $st.Channels $bladeEpgs } catch {}
             $tuners = @(Get-PickerTuners $ov $st.PcIp)
             # bitrate for the COM3000's own channels (guide etc.) - only if the QAM page is already in
             if ($st.LoadQam.Handle.IsCompleted) { try { Set-PickerQamRates $st.Channels (Complete-PickerFetch $st.LoadQam) } catch {} }
@@ -2482,27 +1672,17 @@ function Show-ChannelPicker {
         $lblLoading.Visible = $false
         $st.Updating = $false
         & $setStatus $(if ($st.Resumed) { $st.Resumed } else { "Spare tuner $($st.Prefs.Tuner) sends to $($st.PcIp):$($st.Prefs.Port). Pick a channel to start." })
-        # start on the first DIRECTV channel (not the guide or a streamer - switching away from those is slow)
-        $first = -1; for ($k = 0; $k -lt $st.Channels.Count; $k++) { if (-not $st.Channels[$k].Skip -and -not $st.Channels[$k].Internal) { $first = $k; break } }
-        if ($first -lt 0) { $first = & $nextIndex -1 1 $true }
-        if ($first -ge 0) { & $select $first }
+        $first = & $nextIndex -1 1 $true; if ($first -ge 0) { & $select $first }
         $liveTimer.Start()
-        & $markFixBtn
-        $st.EpgNext = (Get-Date).AddSeconds(60); $epgTimer.Start()
         $lv.Focus()
     })
 
     $f.Add_Shown({
-        & $fitNotes
         $stLeft.Text = 'Loading line-up from the COM3000...'
         $epgHost = if ("$EpgIp".Trim()) { "$EpgIp".Trim() } else { Get-ComIp }
         $st.LoadOv  = Start-PickerFetch $PageUrl
         $st.LoadQam = Start-PickerFetch "http://$(Get-ComIp)/cgi-bin/webcmd?screen=Qam"
         $st.LoadEpg = Start-PickerFetch "http://$epgHost/cgi-bin/webcmd?screen=EpgDisplay"
-        # the EPG copies on the other blades, to say which blade is wrong
-        $st.LoadBlades = @{}
-        foreach ($h in @(@(Get-ComHosts) + @($epgHost) | Select-Object -Unique)) { if ($h -ne $epgHost) { $st.LoadBlades[$h] = Start-PickerFetch "http://$h/cgi-bin/webcmd?screen=EpgDisplay" } }
-        $st.EpgHost = $epgHost
         $loadTimer.Start()
         # start VLC now so it's ready by the time the list appears
         if (-not (Get-Process vlc -ErrorAction SilentlyContinue)) { $v = Find-Vlc; if ($v) { Start-PickerVlc $v ([int]$st.Prefs.Port); $st.VlcSrc = & $tunerSrc } }
@@ -2510,17 +1690,25 @@ function Show-ChannelPicker {
 
     & $savePrefs
     [void]$f.ShowDialog()
-    try { $f.Dispose() } catch {}
-    if ($st.NeedRelease) { try { [void](Invoke-PickerRelease $st.Prefs.Tuner) } catch {} }      # window already closed - nobody waits on this
 }
 
 # ---------------- Channel check window (the "Channel Check" button) ----------------
-# (exit straight away afterwards, so background downloads still running can't hold the program open)
-if ($Picker) { Show-ChannelPicker; [Environment]::Exit(0) }
+if ($Picker) { Show-ChannelPicker; return }
 
 
 # Password for the backend switch is encrypted with Windows DPAPI, machine scope: only programs on
 # THIS PC can decrypt it (the background monitor runs as SYSTEM, so user-only encryption wouldn't do).
+function Protect-ResetPassword([string]$Plain) {
+    Add-Type -AssemblyName System.Security
+    $b = [System.Security.Cryptography.ProtectedData]::Protect([Text.Encoding]::UTF8.GetBytes($Plain), [Text.Encoding]::UTF8.GetBytes('COM3000-reset'), 'LocalMachine')
+    return [Convert]::ToBase64String($b)
+}
+function Unprotect-ResetPassword([string]$Secret) {
+    if (-not $Secret) { return '' }
+    Add-Type -AssemblyName System.Security
+    $b = [System.Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($Secret), [Text.Encoding]::UTF8.GetBytes('COM3000-reset'), 'LocalMachine')
+    return [Text.Encoding]::UTF8.GetString($b)
+}
 function Invoke-SwitchRequest([string]$Url, [string]$User, [string]$Pass, $PostBody = $null) {   # $PostBody untyped on purpose: $null = GET (look only)
     $req = [System.Net.HttpWebRequest]::Create($Url)
     $req.Timeout = 15000; $req.Proxy = $null; $req.PreAuthenticate = $true
@@ -2577,18 +1765,11 @@ function Initialize-ResetHistory {
 # resets per month for the last 12 months, plus the 5 most recent
 function Get-ResetSummary {
     $months = [ordered]@{}; $recent = @(); $bySlot = @{}; $bySlotMonth = [ordered]@{}
-    $all = [ordered]@{ since = ''; card = 0; whole = 0; slots = [ordered]@{} }      # every reset ever recorded on this PC
     Initialize-ResetHistory
     try {
         if (Test-Path $ResetHistoryFile) {
             $cut = (Get-Date).AddMonths(-11).ToString('yyyy-MM')
-            $every = @(Import-Csv $ResetHistoryFile | Where-Object { $_.time -and $_.time.Length -ge 7 })
-            if ($every.Count) { $all.since = $every[0].time.Substring(0, 7) }
-            foreach ($r in $every) {
-                if ($r.kind -eq 'whole') { $all.whole++ }
-                else { $all.card++; $all.slots["$($r.slot)"] = [int]$all.slots["$($r.slot)"] + 1 }
-            }
-            $rows = @($every | Where-Object { $_.time.Substring(0, 7) -ge $cut })
+            $rows = @(Import-Csv $ResetHistoryFile | Where-Object { $_.time -and $_.time.Substring(0, 7) -ge $cut })
             foreach ($r in $rows) {
                 $m = $r.time.Substring(0, 7)
                 if (-not $months.Contains($m)) { $months[$m] = [ordered]@{ ca = 0; ch = 0; wa = 0; wh = 0 } }
@@ -2608,7 +1789,7 @@ function Get-ResetSummary {
             }
         }
     } catch {}
-    return @{ Months = $months; Recent = $recent; BySlot = $bySlot; BySlotMonth = $bySlotMonth; All = $all }
+    return @{ Months = $months; Recent = $recent; BySlot = $bySlot; BySlotMonth = $bySlotMonth }
 }
 
 # ---- Status reports for the COM3000 Dashboard ----
@@ -2617,8 +1798,7 @@ function Send-StatusReport($State, [hashtable]$Info) {
     if ("$StatusReports" -eq 'off' -or $Test -or $ReadOnly) { return }
     $now = Get-Date
     # send every 15 minutes, or straight away when something changed
-    # (the bitrate in "- low bitrate (0.3 Mbps)" changes every minute - leave it out, or it would report every minute)
-    $sig = "$($Info.Page)|$($Info.Paused)|" + (($Info.Cards | ForEach-Object { "$($_.s):$($_.up):$($_.out)" }) -join ',') + '|' + ((@($Info.Out) | ForEach-Object { "$_" -replace ' - low bitrate \(.*\)$', '' }) -join ',') + "|$($State.epgBad)"
+    $sig = "$($Info.Page)|$($Info.Paused)|" + (($Info.Cards | ForEach-Object { "$($_.s):$($_.up):$($_.out)" }) -join ',') + '|' + (($Info.Out) -join ',')
     $last = [datetime]::MinValue; [void][datetime]::TryParse("$($State.statusAt)", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$last)
     if ($sig -eq $State.statusSig -and ($now - $last).TotalMinutes -lt 14.5) { return }
     $sum = Get-ResetSummary
@@ -2638,12 +1818,9 @@ function Send-StatusReport($State, [hashtable]$Info) {
     $rep = [ordered]@{
         v = 1; site = $SiteName; pc = $env:COMPUTERNAME; t = $now.ToString('o'); every = $IntervalMinutes
         page = $Info.Page; via = $Info.Via; paused = $Info.Paused; err = $Info.Err
-        cards = @($Info.Cards); outN = $out.Count; lowN = [int]$Info.Low; out = @($out | Select-Object -First 25)
-        watched = $Info.Watched; backup = $State.lastBackup; ver = $ScriptVersion
-        # (a card offline makes its EPG lines look wrong - don't show the EPG count until it's back)
-        epgBad = $(if ("$($Info.Page)" -ne 'ok' -or @($Info.Cards | Where-Object { -not $_.up }).Count) { 0 } else { [int]$State.epgBad }); epgBadList = "$($State.epgBadList)"
-        epgRef = $(if ("$EpgRefreshTime" -match '^\d\d:\d\d$' -and $State.epgRefAt) { [ordered]@{ at = $State.epgRefAt; ok = ($State.epgRefOk -eq 'ok') } } else { $null })
-        resets = $sum.Months; recent = $sum.Recent; slotResets = $sum.BySlot; slotMonths = $sum.BySlotMonth; allRes = $sum.All
+        cards = @($Info.Cards); outN = $out.Count; out = @($out | Select-Object -First 25)
+        watched = $Info.Watched; backup = $State.lastBackup
+        resets = $sum.Months; recent = $sum.Recent; slotResets = $sum.BySlot; slotMonths = $sum.BySlotMonth
         alerts = $recentAlerts
     }
     $json = $rep | ConvertTo-Json -Depth 6 -Compress
@@ -2660,8 +1837,7 @@ function Send-StatusReport($State, [hashtable]$Info) {
 # Every site reads the other sites' reports. If one has been silent 60+ minutes, the first
 # site (A-Z) that is still reporting sends one alert - so you hear about a dead PC/internet.
 function Test-QuietSites($State) {
-    # only the last 2 hours: enough to see who went quiet (60 min), and a much smaller download than 12 hours
-    $raw = Get-PageHtml "$NtfyServer/$(Get-StatusTopic)/json?poll=1&since=2h"
+    $raw = Get-PageHtml "$NtfyServer/$(Get-StatusTopic)/json?poll=1&since=12h"
     $lastBy = @{}; $offSite = @{}
     foreach ($line in ("$raw" -split "`n")) {
         if (-not $line.Trim()) { continue }
@@ -2899,22 +2075,11 @@ function Find-PingInfoView {
     try {
         $found.Processes = @(Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
             $_.ProcessId -ne $PID -and ($_.Name -match '^PingInfoView' -or "$($_.CommandLine)" -match $PingPattern) })
-    } catch {
-        # Windows Management (WMI) not answering: find it the plain way
-        $found.Processes = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID -and ($_.ProcessName -match '^PingInfoView' -or "$($_.Path)" -match $PingPattern) } |
-            ForEach-Object { [pscustomobject]@{ ProcessId = $_.Id; Name = "$($_.ProcessName).exe"; ExecutablePath = "$($_.Path)" } })
-    }
+    } catch {}
     try {
         $found.Tasks = @(Get-ScheduledTask -ErrorAction Stop | Where-Object {
             $_.TaskName -notlike 'COM3000*' -and (("$($_.TaskName) " + (($_.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)" }) -join ' ')) -match $PingPattern) })
-    } catch {
-        # WMI not answering: ask schtasks.exe instead
-        try {
-            $rows = @(& schtasks.exe /Query /FO CSV /V 2>$null | ConvertFrom-Csv | Where-Object { $_.TaskName -and $_.TaskName -ne 'TaskName' })
-            $found.Tasks = @($rows | Where-Object { $_.TaskName -notmatch '\\(COM3000|Microsoft\\)' -and ("$($_.TaskName) $($_.'Task To Run')" -match $PingPattern) } |
-                Select-Object -Property TaskName -Unique | ForEach-Object { [pscustomobject]@{ TaskName = $_.TaskName; TaskPath = ''; Schtasks = $true } })
-        } catch {}
-    }
+    } catch {}
     foreach ($key in 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run', 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Run',
                      'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Run') {
         try {
@@ -2941,18 +2106,10 @@ function Find-PingInfoView {
 }
 function Remove-PingInfoView($Found) {
     $done = @()
-    foreach ($t in $Found.Tasks) {
-        if ($t.Schtasks) { & schtasks.exe /Delete /TN $t.TaskName /F 2>$null | Out-Null; if ($LASTEXITCODE -eq 0) { $done += "scheduled task '$($t.TaskName)'" }; continue }
-        try { Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false -ErrorAction Stop; $done += "scheduled task '$($t.TaskName)'" } catch {}
-    }
+    foreach ($t in $Found.Tasks) { try { Unregister-ScheduledTask -TaskName $t.TaskName -TaskPath $t.TaskPath -Confirm:$false -ErrorAction Stop; $done += "scheduled task '$($t.TaskName)'" } catch {} }
     foreach ($r in $Found.RunKeys) { try { Remove-ItemProperty -Path $r.Key -Name $r.Name -ErrorAction Stop; $done += "start-at-login entry '$($r.Name)'" } catch {} }
     foreach ($l in $Found.Shortcuts) { try { Remove-Item -LiteralPath $l -Force -ErrorAction Stop; $done += "Startup shortcut '$(Split-Path $l -Leaf)'" } catch {} }
     foreach ($pr in $Found.Processes) { try { Stop-Process -Id $pr.ProcessId -Force -ErrorAction Stop; $done += "running $($pr.Name) (process $($pr.ProcessId))" } catch {} }
-    # anything still running from those folders (it locks the .exe so the folder can't be deleted)
-    foreach ($d in $Found.Folders) {
-        Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Id -ne $PID -and "$($_.Path)" -like "$d\*" } |
-            ForEach-Object { try { Stop-Process -Id $_.Id -Force -ErrorAction Stop; $done += "running $($_.ProcessName)" } catch {} }
-    }
     Start-Sleep -Milliseconds 800
     foreach ($d in $Found.Folders) {
         try { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction Stop; $done += "folder $d" }
@@ -3074,7 +2231,7 @@ if ($Setup) {
 
     # save the answers to com3000-settings.ps1 (kept when the script is updated)
     $q = { param($v) "'" + ($v -replace "'", "''") + "'" }
-    $rbTime = $null; $erTime = $null; $erBlades = $null
+    $rbTime = $null
     $writeSettings = { Set-Content -Path $SettingsFile -Encoding UTF8 -Value (@(
         '# COM3000 monitor settings for this site.'
         '# Written by "Install COM3000 Monitor" - run it again to change these, or edit here and save.'
@@ -3087,9 +2244,6 @@ if ($Setup) {
         "`$NtfyTopic          = $(& $q $topic)        # ntfy topic the phones subscribe to"
         "`$IntervalMinutes    = $interval        # check every this many minutes"
         "`$MinutesBeforeAlert = $delay        # something must be down this long before an alert"
-        "`$MinChannelsOut     = $(if ($MinChannelsOut -ge 1) { [int]$MinChannelsOut } else { 3 })        # fewer channels than this out at once: no phone alert ..."
-        "`$FewChannelsMinutes = $(if ($null -ne $FewChannelsMinutes) { [int]$FewChannelsMinutes } else { 180 })        # ... unless one stays out this many minutes (0 = never)"
-        "`$RainFadeHours      = $(if ($null -ne $RainFadeHours) { [int]$RainFadeHours } else { 3 })        # rain fade (3+ cards dropping): no alerts unless it lasts this many hours (0 = never)"
         "`$ReminderMinutes    = $remind        # 'still down' reminder every this many minutes (0 = off)"
         "`$ChannelReminders   = $(& $q $(if ("$ChannelReminders" -eq 'on') { 'on' } else { 'off' }))        # 'off' = channels get just an out + back alert, no 'still down' reminders"
         "`$ChannelChanges     = $(& $q $cc)        # channel changes: 'phone', 'log' or 'off'"
@@ -3105,11 +2259,6 @@ if ($Setup) {
         "`$InternalStreams    = @{ $((@($streams.Keys | Sort-Object) | ForEach-Object { "$(& $q $_) = $(& $q $streams[$_])" }) -join '; ') }        # internal channel name = address VLC plays"
         "`$StatusReports      = $(& $q $(if ("$StatusReports" -eq 'off') { 'off' } else { 'on' }))        # send status reports for the COM3000 Dashboard: 'on' or 'off'"
         "`$RebootTime         = $(& $q $(if ($rbTime) { $rbTime } else { $RebootTime }))        # restart this PC every day at this time, 24-hour HH:mm (e.g. '04:30'), or 'off'"
-        "`$ExtraTabs          = $(& $q $(if ($null -ne $xtAns) { $xtAns } else { $ExtraTabs }))        # other pages the 'COM3000 Blades' icon opens, e.g. a streamer '192.168.3.200' (comma-separated)"
-        "`$Wallpaper          = $(& $q $(if ($wpAns) { $wpAns } else { $Wallpaper }))        # 'blue' or 'gray' = plain desktop background with the location name, or 'off'"
-        "`$NetRepair          = $(& $q $(if ("$NetRepair" -eq 'off') { 'off' } else { 'on' }))        # 'on' = when the internet drops, restart the network connection / renew / restart the PC to get it back"
-        "`$EpgRefreshTime     = $(& $q $(if ($erTime) { $erTime } else { $EpgRefreshTime }))        # re-submit the EPG page(s) every morning at this time (24-hour HH:mm), or 'off'"
-        "`$EpgRefreshBlades   = $(& $q $(if ($null -ne $erBlades) { $erBlades } else { $EpgRefreshBlades }))        # blades for the EPG refresh, e.g. '192.168.3.18' - blank = every blade that has an EPG"
     ) -join "`r`n") }
     & $writeSettings
 
@@ -3241,8 +2390,7 @@ if ($Setup) {
     # Other tasks that restart or SHUT DOWN this PC: by name, or by what they run
     $isShutdownCmd = { param($c) $c -match 'shutdown(\.exe)?"?\s.*[/-][sp]\b|Stop-Computer' }
     $isRebootCmd   = { param($c) $c -match 'shutdown(\.exe)?"?\s.*[/-]r\b|Restart-Computer' }
-    $allTasks = @(); try { $allTasks = @(Get-ScheduledTask -ErrorAction Stop) } catch { Write-Host "   (Couldn't look for other reboot/shutdown tasks - Windows Management (WMI) isn't answering on this PC.)" -ForegroundColor Yellow }
-    $found = @($allTasks | Where-Object { $_.TaskName -ne $RebootTaskName -and $_.State -ne 'Disabled' -and $_.TaskPath -notlike '\Microsoft\*' } | ForEach-Object {
+    $found = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -ne $RebootTaskName -and $_.State -ne 'Disabled' -and $_.TaskPath -notlike '\Microsoft\*' } | ForEach-Object {
         $cmds = @($_.Actions | ForEach-Object { "$($_.Execute) $($_.Arguments)" }) -join ' | '
         $kind = if (& $isShutdownCmd $cmds) { 'shutdown' } elseif ((& $isRebootCmd $cmds) -or $_.TaskName -match 'reboot|restart') { 'reboot' } elseif ($_.TaskName -match 'shut ?down|power ?off') { 'shutdown' } else { '' }
         if ($kind) {
@@ -3299,42 +2447,6 @@ if ($Setup) {
         }
     }
 
-    # 17. daily EPG refresh (re-press Submit on the EPG page so AEP boxes reload the guide)
-    Write-Host "`n   Daily EPG refresh: every morning, re-submit the EPG page as it is (same list, same checkboxes),"
-    Write-Host '   like pressing Submit, so AEP boxes reload the guide. Runs in the background; phone alert only if it fails.'
-    $erShow = if ($EpgRefreshTime -eq 'off') { 'off' } else { ([datetime]::ParseExact($EpgRefreshTime, 'HH:mm', $Inv)).ToString('h:mm tt', $Inv) }
-    $tries = 0
-    do {
-        $a = Ask '17. Refresh the EPG every day at (e.g. 5:30 AM), or off' $erShow
-        $ok = $true
-        if ($a -match '^\s*off\s*$') { $erTime = 'off' }
-        else {
-            $t = [datetime]::MinValue
-            [string[]]$fmts = @('h:mm tt', 'h:mmtt', 'h tt', 'htt', 'H:mm', 'HH:mm', 'h:mm t', 'ht')
-            if ([datetime]::TryParseExact(($a.ToUpper() -replace '\.', ''), $fmts, $Inv, [Globalization.DateTimeStyles]::AllowWhiteSpaces, [ref]$t)) {
-                $erTime = $t.ToString('HH:mm')
-                foreach ($other in @(@('backup', $bkTime), @('daily PC reboot', $rbTime))) {
-                    if ("$($other[1])" -notmatch '^\d\d:\d\d$') { continue }
-                    $gap = [math]::Abs(([datetime]::ParseExact($erTime, 'HH:mm', $Inv) - [datetime]::ParseExact($other[1], 'HH:mm', $Inv)).TotalMinutes)
-                    if ([math]::Min($gap, 1440 - $gap) -lt 20) { $ok = $false; Write-Host "   That is within 20 minutes of the $($other[0]) time - pick a time at least 20 minutes away." -ForegroundColor Yellow }
-                }
-            } else { $ok = $false; Write-Host '   Please enter a time like 5:30 AM, or off.' -ForegroundColor Yellow }
-        }
-        if (-not $ok -and ++$tries -ge 5) { $erTime = $EpgRefreshTime; $ok = $true; Write-Host "   Keeping $erShow." -ForegroundColor Yellow }
-    } until ($ok)
-    if ($erTime -ne 'off') {
-        $erBlades = (Ask '    Which blades? IP addresses like 192.168.3.18,192.168.3.20 (Enter = every blade that has an EPG)' $(if ("$EpgRefreshBlades".Trim()) { $EpgRefreshBlades } else { '' })).Trim()
-        $erBlades = (@($erBlades -split '[,\s]+' | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+$' }) -join ',')
-    }
-
-    # 18. desktop background
-    $wa = Ask '18. Plain desktop background with the location name, so the icons are easy to see: blue, gray or no' $(if ("$Wallpaper" -eq 'off') { 'no' } elseif ("$Wallpaper" -eq 'gray') { 'gray' } else { 'blue' })
-    $wpAns = if ($wa -match '^\s*(n|no|off)\s*$') { 'off' } elseif ($wa -match '^\s*(g|gray|grey)\s*$') { 'gray' } else { 'blue' }
-
-    # 19. extra pages for the Blades icon (streamers etc.)
-    $xa = Ask '19. Other IPs to open with the COM3000 blades, e.g. a streamer (like 192.168.3.200, comma-separated), or none' $(if ("$ExtraTabs".Trim()) { $ExtraTabs } else { 'none' })
-    $xtAns = (@($xa -split '[,\s]+' | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+(:\d+)?$' }) -join ',')
-
     & $writeSettings
     $IgnoreChannels = $ignList
     $watching = if ($scan) { @($scan.Channels | Where-Object { -not (Test-Ignored $_) }).Count } else { '?' }
@@ -3346,7 +2458,6 @@ if ($Setup) {
         Write-Host 'Not installed. Run "Install COM3000 Monitor" again when ready.' -ForegroundColor Yellow
     } else {
         & $psExe -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath -Install
-        if ($wpAns -ne 'off') { $Wallpaper = $wpAns; Set-ComWallpaper $name }
         if ($bkTime -ne 'off' -and (Start-DriveCopy)) { Write-Host "Copying today's backup to Google Drive now..." }
         Write-Host "`nDone. Keep this folder where it is - the monitor runs the script from here:" -ForegroundColor Green
         Write-Host "  $ScriptDir"
@@ -3371,7 +2482,7 @@ if ($Uninstall) {
             try {
                 $sum = Get-ResetSummary
                 $rep = [ordered]@{ v = 1; site = $SiteName; pc = $env:COMPUTERNAME; t = (Get-Date).ToString('o'); page = 'off'
-                                   cards = @(); outN = 0; out = @(); resets = $sum.Months; recent = $sum.Recent; slotResets = $sum.BySlot; slotMonths = $sum.BySlotMonth; allRes = $sum.All }
+                                   cards = @(); outN = 0; out = @(); resets = $sum.Months; recent = $sum.Recent; slotResets = $sum.BySlot; slotMonths = $sum.BySlotMonth }
                 Send-Ntfy "$NtfyServer/$(Get-StatusTopic)" ([Text.Encoding]::UTF8.GetBytes(($rep | ConvertTo-Json -Depth 6 -Compress))) @{ Title = "status $SiteName"; Priority = 'min'; Tags = 'bar_chart' }
                 $st = Load-State; $st.statusSig = ''; Save-State $st      # report again as soon as it's turned back on
                 Write-Host 'The COM3000 Dashboard now shows this site as "Monitor off".'
@@ -3392,21 +2503,14 @@ if ($Install) {
     $principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
     $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
                    -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
-    try { Stop-ScheduledTask -TaskName $TaskName -ErrorAction Stop } catch {}     # end a stuck check, if any
+    Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue     # end a stuck check, if any
     try {
         Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
             -Principal $principal -Settings $settings -Force -ErrorAction Stop | Out-Null
     } catch {
-        # Windows Management (WMI/CIM) not answering on some PCs - set the task up with schtasks.exe instead
-        $why = $_.Exception.Message
-        $tr = "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \`"$PSCommandPath\`""
-        $out = (& schtasks.exe /Create /TN $TaskName /SC MINUTE /MO $IntervalMinutes /RU SYSTEM /RL HIGHEST /F /TR $tr 2>&1 | Out-String).Trim()
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Could NOT install the monitor: $why / $out" -ForegroundColor Red
-            Write-Host 'Close this window, open PowerShell with "Run as administrator", and run -Install again.' -ForegroundColor Red
-            return
-        }
-        Write-Host '(Installed with schtasks - Windows Management (WMI) is not answering on this PC; a restart usually fixes that.)' -ForegroundColor Yellow
+        Write-Host "Could NOT install the monitor: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host 'Close this window, open PowerShell with "Run as administrator", and run -Install again.' -ForegroundColor Red
+        return
     }
     Write-Host "Installed. The monitor checks every $IntervalMinutes minutes, even when no one is logged in." -ForegroundColor Green
     Write-Host "Log file: $LogFile"
@@ -3430,17 +2534,13 @@ if ($Install) {
             $rbTrigger = New-ScheduledTaskTrigger -Daily -At $rbAt
             $rbPrincipal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
             $rbSettings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 5)
-            try { Register-ScheduledTask -TaskName $RebootTaskName -Action $rbAction -Trigger $rbTrigger -Principal $rbPrincipal -Settings $rbSettings -Force -ErrorAction Stop | Out-Null }
-            catch {
-                $o2 = (& schtasks.exe /Create /TN $RebootTaskName /SC DAILY /ST $($rbAt.ToString('HH:mm', $Inv)) /RU SYSTEM /RL HIGHEST /F /TR 'shutdown.exe /r /f /t 60' 2>&1 | Out-String).Trim()
-                if ($LASTEXITCODE -ne 0) { throw "$($_.Exception.Message) / $o2" }
-            }
+            Register-ScheduledTask -TaskName $RebootTaskName -Action $rbAction -Trigger $rbTrigger -Principal $rbPrincipal -Settings $rbSettings -Force -ErrorAction Stop | Out-Null
             Write-Host "Daily PC reboot at $($rbAt.ToString('h:mm tt', $Inv))." -ForegroundColor Green
         } else {
             Unregister-ScheduledTask -TaskName $RebootTaskName -Confirm:$false -ErrorAction SilentlyContinue
         }
     } catch { Write-Host "(Couldn't set up the daily reboot: $(Get-CleanError $_))" -ForegroundColor Yellow }
-    Send-Alert 'monitor installed' "Watching $PageUrl every $IntervalMinutes min. (version $ScriptVersion)" 'default' 'white_check_mark'
+    Send-Alert 'monitor installed' "Watching $PageUrl every $IntervalMinutes min." 'default' 'white_check_mark'
     return
 }
 
@@ -3496,19 +2596,14 @@ public static class ComWatchdog {
 Set-Step 'loading its saved state'
 $state = Load-State
 if ($Status) {
-    Write-Host "COM3000 status - $SiteName   (monitor version $ScriptVersion)" -ForegroundColor Cyan
+    Write-Host "COM3000 status - $SiteName" -ForegroundColor Cyan
     # is the background monitor running? look at when it last wrote a check to monitor.log
     $last = $null
     if (Test-Path $LogFile) {
-        $hit = Get-Content $LogFile -Tail 300 | Where-Object { $_ -match '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)  (OK -|Check failed|Paused until|This PC is off the network|Internet |Check took over)' } | Select-Object -Last 1
+        $hit = Get-Content $LogFile -Tail 300 | Where-Object { $_ -match '^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)  (OK -|Check failed|Paused until)' } | Select-Object -Last 1
         if ($hit) { $last = [datetime]::ParseExact($hit.Substring(0, 19), 'yyyy-MM-dd HH:mm:ss', $Inv) }
     }
-    $offNet = $hit -and $hit -match '  (This PC is off the network|Internet )'
-    if ($hit -and $hit -match 'Check took over' -and ((Get-Date) - $last).TotalMinutes -le ($IntervalMinutes * 2 + 4)) {
-        Write-Host ("Monitor: ON, but its checks are getting stuck - last one at {0}: {1}" -f $last.ToString('h:mm tt'), $hit.Substring(21)) -ForegroundColor Yellow
-    } elseif ($offNet -and ((Get-Date) - $last).TotalMinutes -le ($IntervalMinutes * 2 + 1)) {
-        Write-Host ("Monitor: ON, but this PC has NO INTERNET - last check {0}: {1}" -f $last.ToString('h:mm tt'), ($hit.Substring(21) -replace '\s+-\s+skipping.*$', '')) -ForegroundColor Yellow
-    } elseif ($last -and ((Get-Date) - $last).TotalMinutes -le ($IntervalMinutes * 2 + 1)) {
+    if ($last -and ((Get-Date) - $last).TotalMinutes -le ($IntervalMinutes * 2 + 1)) {
         Write-Host ("Monitor: ON - last background check at {0}, every {1} min" -f $last.ToString('h:mm tt'), $IntervalMinutes) -ForegroundColor Green
     } elseif ($last) {
         Write-Host ("Monitor: OFF or not running - last background check was {0}" -f $last.ToString('MM/dd h:mm tt')) -ForegroundColor Red
@@ -3516,14 +2611,7 @@ if ($Status) {
         Write-Host 'Monitor: OFF - no background checks found yet' -ForegroundColor Red
     }
     $rbTask = Get-ScheduledTask -TaskName $RebootTaskName -ErrorAction SilentlyContinue
-    Write-Host "Daily EPG refresh: $(if ("$EpgRefreshTime" -match '^\d\d:\d\d$') { "$(([datetime]::ParseExact($EpgRefreshTime, 'HH:mm', $Inv)).ToString('h:mm tt', $Inv)) on $(if ("$EpgRefreshBlades".Trim()) { $EpgRefreshBlades } else { 'every blade that has an EPG' })" } else { 'off' })"
-    # (this window isn't run as administrator, so Windows may hide the task from it - also ask schtasks and the settings)
-    if (-not $rbTask) { & schtasks.exe /Query /TN $RebootTaskName 2>$null | Out-Null; if ($LASTEXITCODE -eq 0) { $rbTask = $true } }
-    if ($rbTask) {
-        $rbNext = try { (Get-ScheduledTaskInfo -TaskName $RebootTaskName -ErrorAction Stop).NextRunTime.ToString('ddd h:mm tt') } catch { if ("$RebootTime" -match '^\d\d:\d\d$') { 'every day at ' + ([datetime]::ParseExact($RebootTime, 'HH:mm', $Inv)).ToString('h:mm tt', $Inv) } else { 'on' } }
-        Write-Host "Daily PC reboot: $rbNext"
-    } elseif ("$RebootTime" -match '^\d\d:\d\d$') { Write-Host "Daily PC reboot: every day at $(([datetime]::ParseExact($RebootTime, 'HH:mm', $Inv)).ToString('h:mm tt', $Inv))" }
-    else { Write-Host 'Daily PC reboot: off' }
+    if ($rbTask) { Write-Host "Daily PC reboot: $(try { (Get-ScheduledTaskInfo -TaskName $RebootTaskName).NextRunTime.ToString('ddd h:mm tt') } catch { 'on' })" } else { Write-Host 'Daily PC reboot: off' }
     if ($BackupTime -eq 'off') { Write-Host 'Backups: off' }
     else {
         $lastFile = Get-ChildItem -Path $BackupDir -Filter '*COM3000 backup*.txt' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
@@ -3546,7 +2634,6 @@ if ($ClearResets) {
         $st = Load-State
         foreach ($n in 'resetDay', 'resetAt', 'nvSince', 'gnSince') { $st[$n] = @{} }
         $st.sysResetDay = ''; $st.sysSkipDay = ''; $st.sysResetAt = ''; $st.sysResetSlots = ''; $st.pdSince = ''
-        $st.netReboot = ''      # test PC restarts (internet self-fix) don't count against the 2-a-day limit
         $st.statusSig = ''      # send a fresh report to the dashboard on the next check
         Save-State $st
         Remove-Item $PauseFile -ErrorAction SilentlyContinue
@@ -3555,176 +2642,11 @@ if ($ClearResets) {
         Write-Host '  - Reset history cleared: the dashboard shows 0 resets for this site within a few minutes.'
         Write-Host '  - Automatic card and whole COM3000 resets are ready again (the one-per-day limits are cleared).'
         Write-Host '  - Any pause from a test reset is over: alerts are back on.'
-        Write-Host '  - Test PC restarts (no-internet fix) are cleared: it can restart again right away.'
     } catch {
         Write-Host "Could not clear the reset history: $(Get-CleanError $_)" -ForegroundColor Red
         Write-Host 'Use the Clear Test Resets button, which asks for administrator permission.' -ForegroundColor Red
     }
     return
-}
-
-# ---- Update dashboard now (button: "Update dashboard now") ----
-if ($ReportNow) {
-    try {
-        $st = Load-State; $st.statusSig = ''; Save-State $st      # forces a fresh report on this check
-        $ran = $false
-        try { Start-ScheduledTask -TaskName $TaskName -ErrorAction Stop; $ran = $true } catch {
-            & schtasks.exe /Run /TN $TaskName 2>&1 | Out-Null; $ran = ($LASTEXITCODE -eq 0) }
-        if ($ran) {
-            Write-Log 'Dashboard update requested by hand'
-            Write-Host "Sending $SiteName's status to the dashboard now." -ForegroundColor Green
-            Write-Host '  - It arrives in about 1 minute (the check takes 20-60 seconds).'
-            Write-Host '  - On the dashboard, press F5 (or click away and back) to see it right away.'
-        } else {
-            Write-Host 'Could not start the monitor right now. It will still report on its next check (within 1 minute).' -ForegroundColor Yellow
-        }
-    } catch {
-        Write-Host "Could not update the dashboard: $(Get-CleanError $_)" -ForegroundColor Red
-    }
-    return
-}
-
-# ---- Internet self-repair: when this PC can't reach the internet, try to get it back ----
-#   10 min down: restart the network connection   15 min: renew the address (DHCP) and clear DNS
-#   25 min: restart the PC - at most twice in 24 hours, 6 hours apart. Still down 2 hours later: try the steps again.
-#   One message when it's back.
-function Test-Internet {
-    $hosts = @(@(([uri]$NtfyServer).Host, 443), @('1.1.1.1', 443), @('8.8.8.8', 443))
-    $tests = @(foreach ($h in $hosts) { $tc = New-Object Net.Sockets.TcpClient; [pscustomobject]@{ Tc = $tc; Task = $(try { $tc.ConnectAsync($h[0], $h[1]) } catch { $null }) } })
-    try { [void][Threading.Tasks.Task]::WaitAll(@($tests | Where-Object { $_.Task } | ForEach-Object { $_.Task }), 4000) } catch {}
-    $ok = [bool]@($tests | Where-Object { $_.Task -and $_.Task.Status -eq 'RanToCompletion' -and $_.Tc.Connected }).Count
-    foreach ($t in $tests) { try { $t.Tc.Close() } catch {} }
-    return $ok
-}
-function Get-Gateway { try { return "$(@(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction Stop | Sort-Object RouteMetric)[0].NextHop)" } catch { return '' } }
-function Test-Ping([string]$Ip) { if (-not $Ip) { return $false }; try { return ((New-Object Net.NetworkInformation.Ping).Send($Ip, 1500).Status -eq 'Success') } catch { return $false } }
-if ("$NetRepair" -ne 'off' -and -not $ReadOnly -and -not $Test -and -not $Status) {
-    Set-Step 'checking the internet'
-    $now = Get-Date
-    if (Test-Internet) {
-        if ($state.netDown) {
-            $since = [datetime]::Parse($state.netDown, $Inv, [Globalization.DateTimeStyles]::RoundtripKind)
-            $mins = [int]($now - $since).TotalMinutes
-            # what fixed it: the step tried in the last 5 minutes, otherwise it came back on its own
-            $at = [datetime]::MinValue; [void][datetime]::TryParse("$($state.netStepAt)", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$at)
-            $fresh = ($now - $at).TotalMinutes -le 5
-            $how = if ($fresh -and $state.netStep -eq 1) { 'it came back right after the PC restarted its network connection' }
-                   elseif ($fresh -and $state.netStep -eq 2) { 'it came back right after the PC renewed its network address' }
-                   elseif ($state.netStep -eq 3 -and ($now - $at).TotalMinutes -le 15) { 'it came back after the PC restarted itself' }
-                   elseif ($state.netCut) { "it came back on its own - this PC couldn't reach the router or the COM3000 either, so check its network cable / switch port" }
-                   else { 'it came back on its own - most likely the router or the internet service' }
-            $t = @("$($state.netTried)" -split ',') + @(0, 0, 0)
-            $tried = @(); if ([int]$t[0]) { $tried += "network restart x$([int]$t[0])" }; if ([int]$t[1]) { $tried += "address renew x$([int]$t[1])" }; if ([int]$t[2]) { $tried += "PC restart x$([int]$t[2])" }
-            $triedTxt = if ($tried) { $tried -join ', ' } else { 'nothing yet' }
-            Write-Log "Internet back after $mins min - $how (tried: $triedTxt)"
-            $paused = $false; if (Test-Path $PauseFile) { $pu = [datetime]::MinValue; [void][datetime]::TryParse((Get-Content $PauseFile -Raw).Trim(), $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$pu); $paused = (Get-Date) -lt $pu }
-            if ($mins -ge 10 -and -not $paused) {
-                Send-Alert 'internet back' "$SiteName PC was offline for $mins min ($($since.ToString('h:mm tt')) - $($now.ToString('h:mm tt'))) - $how.$(if ($tried) { " The PC tried: $triedTxt." })" 'low' 'globe_with_meridians'
-            }
-            $state.netDown = ''; $state.netCycle = ''; $state.netCut = ''; $state.netStep = 0; $state.netStepAt = ''; $state.netTried = ''
-        }
-    } else {
-        if (-not $state.netDown) { $state.netDown = $now.ToString('o'); $state.netCycle = ''; $state.netStep = 0; $state.netTried = ''; Write-Log "Internet not reachable from this PC - watching it. (monitor version $ScriptVersion)" }
-        $since = [datetime]::Parse($(if ($state.netCycle) { $state.netCycle } else { $state.netDown }), $Inv, [Globalization.DateTimeStyles]::RoundtripKind)
-        $down = ($now - $since).TotalMinutes
-        $addTry = { param($k) $t = @("$($state.netTried)" -split ',') + @(0, 0, 0); $c = @([int]$t[0], [int]$t[1], [int]$t[2]); $c[$k]++; $state.netTried = $c -join ',' }
-        $gw = Get-Gateway; $gwOk = Test-Ping $gw; $comOk = Test-HostPort (Get-ComMainIp)
-        if ($state.netStep -lt 1 -and $down -ge 10) {
-            Set-Step 'restarting the network connection'
-            $ads = @(Get-NetAdapter -Physical -ErrorAction SilentlyContinue | Where-Object { $_.Status -ne 'Disabled' })
-            foreach ($a in $ads) { try { Restart-NetAdapter -Name $a.Name -Confirm:$false -ErrorAction Stop } catch {} }
-            $state.netStep = 1; $state.netStepAt = $now.ToString('o'); & $addTry 0
-            Write-Log "Internet down $([int]$down) min (router $gw $(if ($gwOk) { 'answers' } else { 'not answering' }), COM3000 $(if ($comOk) { 'answers' } else { 'not answering' })) - restarted the network connection ($(@($ads | ForEach-Object { $_.Name }) -join ', '))."
-        } elseif ($state.netStep -eq 1 -and $down -ge 15) {
-            Set-Step 'renewing the network address'
-            try { & ipconfig.exe /renew | Out-Null } catch {}
-            try { & ipconfig.exe /flushdns | Out-Null } catch {}
-            $state.netStep = 2; $state.netStepAt = $now.ToString('o'); & $addTry 1
-            Write-Log "Internet still down ($([int]$down) min) - renewed the network address and cleared DNS."
-        } elseif ($state.netStep -eq 2 -and $down -ge 25) {
-            # restarts asked for in the last 24 hours - only ones Windows really did (it started up after the request)
-            $bootAt = [datetime]::MaxValue; try { $bootAt = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime } catch {}
-            $recent = @("$($state.netReboot)" -split ',' | Where-Object { $_ } | ForEach-Object { $t = [datetime]::MinValue; if ([datetime]::TryParse($_, $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$t) -and ($now - $t).TotalHours -lt 24 -and $bootAt -ge $t) { $_ } })
-            $lastBoot = [datetime]::MinValue; foreach ($r in $recent) { $t = [datetime]::Parse($r, $Inv, [Globalization.DateTimeStyles]::RoundtripKind); if ($t -gt $lastBoot) { $lastBoot = $t } }
-            if ($recent.Count -lt 2 -and ($now - $lastBoot).TotalHours -ge 6) {
-                $state.netStep = 3; $state.netBootOk = ''; $state.netStepAt = $now.ToString('o'); $state.netReboot = (@($recent) + $now.ToString('o')) -join ','; & $addTry 2
-                Save-State $state
-                Write-Log "Internet down $([int]$down) min (router $gw $(if ($gwOk) { 'answers' } else { 'not answering' }), COM3000 $(if ($comOk) { 'answers' } else { 'not answering' })) - restarting the PC ($($recent.Count + 1) of 2 allowed in 24 hours)."
-                # shutdown.exe, like the daily reboot (Restart-Computer can quietly fail when run by the background task)
-                $out = (& shutdown.exe /r /f /t 30 /d p:4:1 /c 'COM3000 Monitor: no internet for 25 minutes - restarting this PC to get it back.' 2>&1 | Out-String).Trim()
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Log "shutdown.exe didn't work (code $LASTEXITCODE $out) - trying Restart-Computer."
-                    try { Restart-Computer -Force -ErrorAction Stop } catch { Write-Log "The PC could NOT be restarted: $(Get-CleanError $_)" }
-                }
-                return
-            }
-            $state.netStep = 4; $state.netStepAt = $now.ToString('o')
-            Write-Log "Internet still down ($([int]$down) min). Not restarting the PC again yet (at most twice a day, 6 hours apart) - restarts counted: $(if ($recent.Count) { ($recent | ForEach-Object { ([datetime]::Parse($_, $Inv, [Globalization.DateTimeStyles]::RoundtripKind)).ToString('MM/dd h:mm tt') }) -join ', ' } else { 'none' }); Windows last started $(if ($bootAt -ne [datetime]::MaxValue) { $bootAt.ToString('MM/dd h:mm tt') } else { 'unknown' })."
-
-        } elseif ($state.netStep -eq 3 -and -not $state.netBootOk) {
-            # first check after asking for the restart: did Windows actually restart?
-            $state.netBootOk = 'checked'
-            try {
-                $boot = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime
-                $asked = [datetime]::Parse($state.netStepAt, $Inv, [Globalization.DateTimeStyles]::RoundtripKind)
-                if ($boot -lt $asked) {
-                    Write-Log "The PC restart did NOT happen (last start $($boot.ToString('MM/dd h:mm tt'))) - not counting it."
-                    $state.netReboot = (@("$($state.netReboot)" -split ',' | Where-Object { $_ -and $_ -ne $state.netStepAt }) -join ',')
-                    $t = @("$($state.netTried)" -split ',') + @(0, 0, 0); $state.netTried = (@([int]$t[0], [int]$t[1], [Math]::Max(0, [int]$t[2] - 1)) -join ',')
-                } else { Write-Log "PC restarted at $($boot.ToString('h:mm tt')) - internet still down." }
-            } catch {}
-        } elseif ($state.netStep -ge 3) {
-            # still down 2 hours after the last try: go through the steps again (the PC restart still only twice a day)
-            $at = [datetime]::MinValue; [void][datetime]::TryParse("$($state.netStepAt)", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$at)
-            if (($now - $at).TotalMinutes -ge 120) {
-                $state.netCycle = $now.AddMinutes(-10).ToString('o'); $state.netStep = 0
-                Write-Log 'Internet still down 2 hours after the last try - going through the steps again.'
-            }
-        }
-        # this PC can't reach the router OR the COM3000: it's cut off (cable, switch port, its own network) -
-        # the COM3000 is not the problem, so don't count the cards as down (no false 'card offline/back' alerts)
-        if (-not $gwOk -and -not $comOk) {
-            $state.netCut = 'yes'
-            foreach ($k in @($state.counts.Keys)) { $state.counts[$k] = 0 }
-            $state.failCount = 0; $state.pdSince = ''
-            Save-State $state
-            Write-Log "This PC is off the network (router and COM3000 not answering) - skipping the COM3000 check."
-            return
-        }
-    }
-}
-
-# ---- Self-update from GitHub (about once an hour) ----
-if ("$AutoUpdate" -ne 'off' -and "$UpdateUrl" -match '^https://' -and -not $ReadOnly -and -not $Test -and -not $Status) {
-    $lastUpd = [datetime]::MinValue; [void][datetime]::TryParse("$($state.updCheckAt)", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$lastUpd)
-    if (((Get-Date) - $lastUpd).TotalMinutes -ge 60) {
-        Set-Step 'checking for a newer version'
-        $state.updCheckAt = (Get-Date).ToString('o'); Save-State $state
-        try {
-            $rq = [System.Net.HttpWebRequest]::Create("$($UpdateUrl)?t=$([DateTime]::UtcNow.Ticks)")
-            $rq.Timeout = 20000; $rq.ReadWriteTimeout = 20000; $rq.UserAgent = 'COM3000-monitor-update'
-            $rs = $rq.GetResponse()
-            try { $ms = New-Object IO.MemoryStream; $rs.GetResponseStream().CopyTo($ms); $bytes = $ms.ToArray() } finally { $rs.Close() }
-            $txt = [Text.Encoding]::UTF8.GetString($bytes)
-            $newVer = [regex]::Match($txt, "(?m)^\`$ScriptVersion = '([^']+)'").Groups[1].Value
-            if ($newVer -and $newVer -gt $ScriptVersion) {
-                # only a complete, error-free copy of THIS program
-                $errs = $null; [void][System.Management.Automation.Language.Parser]::ParseInput($txt, [ref]$null, [ref]$errs)
-                $ok = ($bytes.Length -gt 100000) -and ($txt -match 'COM3000 Channel Monitor') -and ($txt -match '(?s)# ---- END OF COM3000 MONITOR ----[^\r\n]*\s*$') -and -not @($errs).Count
-                if ($ok) {
-                    $cur = $PSCommandPath
-                    $new = Join-Path $ScriptDir 'com3000-monitor.new.ps1'
-                    [IO.File]::WriteAllBytes($new, $bytes)
-                    Copy-Item -LiteralPath $cur -Destination (Join-Path $ScriptDir 'com3000-monitor.previous.ps1') -Force
-                    Move-Item -LiteralPath $new -Destination $cur -Force
-                    Write-Log "Updated itself: version $ScriptVersion -> $newVer (old copy kept as com3000-monitor.previous.ps1). The next check uses the new version."
-                    $state.statusSig = ''      # tell the dashboard the new version straight away
-                } else {
-                    Write-Log "Found version $newVer online but it didn't pass the checks (incomplete or has errors) - not using it."
-                }
-            }
-        } catch { Write-Log "Update check skipped: $(Get-CleanError $_)" }
-    }
 }
 
 if (Test-Path $PauseFile) {
@@ -3769,7 +2691,6 @@ function Invoke-DeviceChecks($s, [switch]$Defer) {
         $keys[$key] = $true
         $name = "$($devices[$ip]) ($ip)"
         $up   = Test-Card $ip
-        if (-not $up) { Start-Sleep -Milliseconds 1500; $up = Test-Card $ip }      # a busy card can miss one try
         $script:CardUp[$ip] = $up
         if ($Test) {
             Write-Host ("  {0,-30} {1}" -f $name, $(if ($up) { 'online' } else { 'NOT RESPONDING' })) -ForegroundColor $(if ($up) { 'Gray' } else { 'Red' })
@@ -3921,7 +2842,7 @@ $recovered = New-Object System.Collections.ArrayList
 $changed   = New-Object System.Collections.ArrayList
 $seen      = @{}
 $slotWatched = @{}; $slotDown = @{}
-$dashOut = New-Object System.Collections.ArrayList; $dashOutSlot = @{}; $script:DashLow = 0
+$dashOut = New-Object System.Collections.ArrayList; $dashOutSlot = @{}
 $ignored   = 0
 if ($Test) { Write-Host "`nChannels:" -ForegroundColor Cyan }
 
@@ -3983,19 +2904,10 @@ foreach ($c in $channels) {
         Write-Host ("  {0,-6} {1,-20} {2,9}  SNR {3,-3} slot {4} tuner {5}" -f $c.Virt, $c.Channel, $c.Rate, $c.Snr, $c.Slot, $c.Tuner) -ForegroundColor $(if ($down) { 'Red' } else { 'Gray' })
     }
     switch (Update-Item $state $c.Key $down $label) {
-        'down' { if ($c.NoChannel) { [void]$dropped.Add($label) } else { [void]$newlyOut.Add([pscustomobject]@{ Label = $label; Short = "$($c.Virt) $($c.Channel)"; Slot = "$($c.Slot)"; Key = $c.Key }) } }
-        'up'   {
-            if ($state.held.ContainsKey($c.Key)) { Write-Log "Back (no alert was sent - only a few channels were out): $label" }
-            else { [void]$recovered.Add("$label (out since $($state.alerted[$c.Key]))") }
-            Clear-Item $state $c.Key
-        }
+        'down' { if ($c.NoChannel) { [void]$dropped.Add($label) } else { [void]$newlyOut.Add([pscustomobject]@{ Label = $label; Short = "$($c.Virt) $($c.Channel)"; Slot = "$($c.Slot)" }) } }
+        'up'   { [void]$recovered.Add("$label (out since $($state.alerted[$c.Key]))"); Clear-Item $state $c.Key }
     }
-    if ($state.alerted.ContainsKey($c.Key)) {
-        # say WHY: no channel picked on the tuner, or just a low bitrate (often a blacked-out game)
-        $why = if ($c.NoChannel) { '' } else { " - low bitrate ($($c.Rate))" }
-        [void]$dashOut.Add("$($c.Virt) $($c.Channel)$why"); $dashOutSlot["$($c.Slot)"] = [int]$dashOutSlot["$($c.Slot)"] + 1
-        if (-not $c.NoChannel) { $script:DashLow++ }
-    }
+    if ($state.alerted.ContainsKey($c.Key)) { [void]$dashOut.Add("$($c.Virt) $($c.Channel)"); $dashOutSlot["$($c.Slot)"] = [int]$dashOutSlot["$($c.Slot)"] + 1 }
 }
 
 if ($changed.Count -gt 0 -and $ChannelChanges -ne 'off') {
@@ -4039,66 +2951,8 @@ foreach ($ip in $state.devices.Keys) { if ($state.devices[$ip] -match '^Card slo
 $onPage = @{}; foreach ($sl in $data.Slots) { $onPage["$($sl.Slot)"] = $true }
 function Test-SlotDown([string]$Sl) {
     $ip = $slotIp[$Sl]
-    if ($ip -and "$($script:ComHostNow)" -replace ':\d+$', '' -eq $ip) { return $false }      # it just served us the Overview page - it's up
     if ($ip -and $script:CardUp.ContainsKey($ip) -and -not $script:CardUp[$ip]) { return $true }
     return ($ip -and -not $onPage.ContainsKey($Sl))
-}
-# ---- Only a few channels out: hold the alert (no phone) unless $MinChannelsOut+ are out at once,
-#      or one of them stays out $FewChannelsMinutes minutes. A card/satellite problem always alerts.
-$cardTrouble = $script:CardDownNew.Count -gt 0 -or @($slotWatched.Keys | Where-Object { Test-SlotDown $_ }).Count -gt 0
-$nOutNow = @($state.alerted.Keys | Where-Object { $_ -like 'ch:*' }).Count
-$minOut = [Math]::Max(1, [int]$MinChannelsOut)
-
-# ---- Rain fade: channels dropping on 3+ cards (or every card) while all the cards are answering ----
-#      No phone alerts while it lasts (and for 30 min after), no card resets. Only if it goes on
-#      $RainFadeHours hours: one alert, because then it's probably the dish / LNB / cable, not rain.
-$parseRT = { param($t) $d = [datetime]::MinValue; [void][datetime]::TryParse("$t", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$d); $d }
-$downSlots = @($slotDown.Keys | Where-Object { [int]$slotDown[$_] -gt 0 }).Count
-$totDownNow = 0; foreach ($sl in $slotDown.Keys) { $totDownNow += [int]$slotDown[$sl] }
-$rainPattern = (-not $cardTrouble) -and $slotWatched.Count -ge 2 -and $totDownNow -ge 3 -and $downSlots -ge [Math]::Min(3, $slotWatched.Count)
-$nowR = Get-Date
-if ($rainPattern) {
-    if (-not $state.rainSince) { $state.rainSince = $nowR.ToString('o'); Write-Log "Rain fade / weak signal: $totDownNow channels dropping on $downSlots cards, cards all answering - no phone alerts while it lasts." }
-    $state.rainLast = $nowR.ToString('o')
-}
-$script:RainMode = (-not $cardTrouble) -and $state.rainSince -and (($nowR - (& $parseRT $state.rainLast)).TotalMinutes -lt 30)
-if ($state.rainSince -and -not $script:RainMode -and -not $cardTrouble) {
-    Write-Log "Rain fade over (signal normal for 30 min) - it started $((& $parseRT $state.rainSince).ToString('h:mm tt')). Normal alerts again."
-    $state.rainSince = ''; $state.rainLast = ''; $state.rainAlerted = ''
-}
-
-if ($script:RainMode) {
-    foreach ($e in @($newlyOut)) { $state.held[$e.Key] = $nowR.ToString('o'); Write-Log "Out (rain fade - no alert): $($e.Label)" }
-    $newlyOut = New-Object System.Collections.ArrayList
-    $rainHrs = ($nowR - (& $parseRT $state.rainSince)).TotalHours
-    if ([double]$RainFadeHours -gt 0 -and $rainHrs -ge [double]$RainFadeHours -and -not $state.rainAlerted -and $nOutNow -ge $minOut) {
-        $state.rainAlerted = $nowR.ToString('o')
-        $outNames = @($state.alerted.Keys | Where-Object { $_ -like 'ch:*' } | ForEach-Object { "$($_ -replace '^ch:', '' -replace '#\d+$', '') $($state.names[$_])".Trim() } | Sort-Object { [int]($_ -replace '-.*$', '') })
-        Send-Alert 'satellite signal problem' ("Channels have been dropping on several cards for $([int]$RainFadeHours)+ hours (since $((& $parseRT $state.rainSince).ToString('h:mm tt'))) - longer than rain usually lasts. Check the dish, LNB and cables.`nOut now ($($outNames.Count)): " + ($outNames -join ', ')) 'high' 'satellite'
-    }
-} elseif (-not $cardTrouble -and $nOutNow -lt $minOut) {
-    foreach ($e in @($newlyOut)) { $state.held[$e.Key] = (Get-Date).ToString('o'); Write-Log "Out, holding the alert (only $nOutNow channel$(if ($nOutNow -ne 1) { 's' }) out): $($e.Label)" }
-    $newlyOut = New-Object System.Collections.ArrayList
-    # still out after $FewChannelsMinutes: alert after all
-    if ([int]$FewChannelsMinutes -gt 0) {
-        foreach ($k in @($state.held.Keys)) {
-            $t = [datetime]::MinValue; [void][datetime]::TryParse("$($state.held[$k])", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$t)
-            if (((Get-Date) - $t).TotalMinutes -ge [int]$FewChannelsMinutes -and $state.alerted.ContainsKey($k)) {
-                $lb = if ($state.labels[$k]) { $state.labels[$k] } else { $k -replace '^ch:', 'Ch ' }
-                [void]$newlyOut.Add([pscustomobject]@{ Label = "$lb - out $(if ([int]$FewChannelsMinutes % 60 -eq 0) { "$([int]$FewChannelsMinutes / 60)+ hours" } else { "$([int]$FewChannelsMinutes)+ min" })"; Short = ("$($k -replace '^ch:', '' -replace '#\d+$', '') $($state.names[$k])").Trim(); Slot = "$($state.slotOf[$k])"; Key = $k })
-                $state.held.Remove($k)
-            }
-        }
-    }
-} elseif ($state.held.Count) {
-    # enough channels out now (or a card problem): include the ones that were being held
-    foreach ($k in @($state.held.Keys)) {
-        if ($state.alerted.ContainsKey($k) -and -not @($newlyOut | Where-Object { $_.Key -eq $k }).Count) {
-            $lb = if ($state.labels[$k]) { $state.labels[$k] } else { $k -replace '^ch:', 'Ch ' }
-            [void]$newlyOut.Add([pscustomobject]@{ Label = $lb; Short = ("$($k -replace '^ch:', '' -replace '#\d+$', '') $($state.names[$k])").Trim(); Slot = "$($state.slotOf[$k])"; Key = $k })
-        }
-        $state.held.Remove($k)
-    }
 }
 $events  = @(@($newlyOut) + @($missing) | Sort-Object { [int]($_.Short -replace '-.*$', '') })
 $badSlot = @{}
@@ -4106,7 +2960,7 @@ foreach ($sl in $slotWatched.Keys) {
     if ($slotWatched[$sl] -ge 2 -and ([int]$slotDown[$sl] / $slotWatched[$sl]) -ge 0.75) { $badSlot[$sl] = $true }
 }
 $anyCardDown = @($slotWatched.Keys | Where-Object { Test-SlotDown $_ }).Count -gt 0
-$weather = (($slotWatched.Count -ge 2) -and ($badSlot.Count -eq $slotWatched.Count) -and -not $anyCardDown) -or $script:RainMode
+$weather = ($slotWatched.Count -ge 2) -and ($badSlot.Count -eq $slotWatched.Count) -and -not $anyCardDown
 
 if ($events.Count -gt 0 -or $script:CardDownNew.Count -gt 0) {
     $lines = New-Object System.Collections.ArrayList
@@ -4308,67 +3162,13 @@ if (-not $ReadOnly -and $BackupTime -ne 'off') {
     }
 }
 
-# ---- Daily EPG refresh: re-press Submit on the EPG page(s), in the background ----
-if ($script:EpgSubmitEnabled -and -not $ReadOnly -and -not $Test -and "$EpgRefreshTime" -match '^\d\d:\d\d$') {
-    $now = Get-Date; $today = $now.ToString('yyyy-MM-dd')
-    $et = [datetime]::ParseExact("$today $EpgRefreshTime", 'yyyy-MM-dd HH:mm', $Inv)
-    $nx = [datetime]::MinValue; [void][datetime]::TryParse("$($state.epgRefNext)", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$nx)
-    if ($now -ge $et -and $state.epgRefDay -ne $today -and $now -ge $nx) {
-        Set-Step 'refreshing the EPG'
-        $res = @(Invoke-EpgRefresh)
-        $bad = @($res | Where-Object { -not $_.Ok })
-        if ($res.Count -and -not $bad) {
-            $state.epgRefDay = $today; $state.epgRefFails = 0; $state.epgRefNext = ''; $state.epgRefAt = $now.ToString('o'); $state.epgRefOk = 'ok'
-            Write-Log ("EPG refreshed: " + (($res | ForEach-Object { "$($_.Host) ($($_.Lines) lines)" }) -join ', '))
-        } else {
-            $state.epgRefFails++
-            $why = if ($bad) { ($bad | ForEach-Object { $_.Err }) -join "`n" } else { 'No blade with an EPG list was found.' }
-            Write-Log "EPG refresh failed (try $($state.epgRefFails)): $($why -replace "`n", ' / ')"
-            if ($state.epgRefFails -ge 2) {
-                # tried twice, 5 minutes apart: tell someone, then leave it until tomorrow
-                Send-Alert 'EPG refresh failed' "This morning's EPG refresh didn't work:`n$why`nAEP boxes may be missing guide info - check the EPG page." 'high' 'warning'
-                $state.epgRefDay = $today; $state.epgRefFails = 0; $state.epgRefNext = ''; $state.epgRefAt = $now.ToString('o'); $state.epgRefOk = 'failed'
-            } else {
-                $state.epgRefNext = $now.AddMinutes(5).ToString('o')        # try again in 5 minutes
-            }
-        }
-    }
-}
-
 # report to the COM3000 Dashboard
 Set-Step 'sending the dashboard report'
 try {
     $dashCards = @(foreach ($sl in @($slotIp.Keys | Sort-Object { [int]("$_" -replace '\D', '') })) {
         [ordered]@{ s = "$sl"; ip = $slotIp[$sl]; up = (-not (Test-SlotDown $sl)); n = [int]$slotWatched["$sl"]; out = [int]$dashOutSlot["$sl"] }
     })
-    # ---- EPG check for the dashboard (every 30 min): which channels the EPG has wrong - no phone alert ----
-    if (-not $Test) {
-        $lastEpgChk = [datetime]::MinValue; [void][datetime]::TryParse("$($state.epgCheckAt)", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$lastEpgChk)
-        # not while a card is offline: its tuners are missing from the Overview, so their EPG lines would all look wrong
-        if (((Get-Date) - $lastEpgChk).TotalMinutes -ge 30 -and -not $anyCardDown -and -not $script:CardDownNew.Count) {
-            Set-Step 'checking the EPG against the Overview'
-            $state.epgCheckAt = (Get-Date).ToString('o'); Save-State $state      # saved now: if this gets stuck, it isn't retried every minute
-            $epgDeadline = (Get-Date).AddSeconds(90)
-            try {
-                $epgHost = if ("$EpgIp".Trim()) { "$EpgIp".Trim() } else { Get-ComIp }
-                $bladeEpgs = @{}
-                foreach ($h in @(@($epgHost) + @(Get-ComHosts) | Where-Object { $_ } | Select-Object -Unique)) {
-                    if ((Get-Date) -gt $epgDeadline) { Write-Log 'EPG check: blades too slow - skipped the rest this time.'; break }
-                    if (-not (Test-HostPort $h)) { continue }
-                    try { $bladeEpgs[$h] = Get-PageHtml "http://$h/cgi-bin/webcmd?screen=EpgDisplay" } catch {}
-                }
-                if ($bladeEpgs.ContainsKey($epgHost)) {
-                    $epgCh = Get-PickerChannels $html $bladeEpgs[$epgHost]
-                    Set-PickerBladeChecks $epgCh $html $bladeEpgs
-                    $bad = @($epgCh | Where-Object { $_.Guide -eq 'X' })
-                    $state.epgBad = $bad.Count
-                    $state.epgBadList = (@($bad | Select-Object -First 12 | ForEach-Object { "$($_.Virt) $($_.Name)".Trim() }) -join ', ')
-                    if ($bad.Count) { Write-Log "EPG check: $($bad.Count) channel(s) wrong in the EPG: $($state.epgBadList)" }
-                }
-            } catch { Write-Log "EPG check skipped: $(Get-CleanError $_)" }
-        }
-    }
-    Send-StatusReport $state @{ Page = 'ok'; Via = $script:ComHostNow; Paused = ''; Err = ''; Cards = $dashCards; Out = @($dashOut); Low = $script:DashLow; Watched = $seen.Count }
+    Send-StatusReport $state @{ Page = 'ok'; Via = $script:ComHostNow; Paused = ''; Err = ''; Cards = $dashCards; Out = @($dashOut); Watched = $seen.Count }
 } catch { Write-Log "Dashboard report skipped: $(Get-CleanError $_)" }
 
 Save-State $state
@@ -4380,4 +3180,3 @@ if ($Status) {
     Send-Alert 'monitor test' "Test from $env:COMPUTERNAME - watching $($seen.Count) channels." 'default' 'test_tube'
     Write-Host 'A test notification was sent - check your phone.' -ForegroundColor Cyan
 }
-# ---- END OF COM3000 MONITOR ----   (the self-update checks for this line, so it knows the file arrived complete)
