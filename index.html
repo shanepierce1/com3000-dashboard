@@ -176,7 +176,7 @@ button.clear.armed { color: var(--bad); border-color: var(--bad); }
 </div>
 <script>
 // Change this whenever a new index.html goes on GitHub: open copies of the old page see it and reload themselves.
-const PAGE_VER = '2026-11-13f';
+const PAGE_VER = '2026-11-13g';
 // ---- Settings ----------------------------------------------------------
 // The ntfy topic the site PCs send status reports to: your alerts topic + "-status".
 const TOPIC = 'com3000-alerts-x7q4m2-status';
@@ -502,7 +502,7 @@ async function load() {
     alerts = alerts.filter(a => a.rx >= weekAgo).sort((a, b) => b.rx - a.rx).slice(0, 400);
     saveAlerts();
     $('error').hidden = true;
-    $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' · refreshes every 2 minutes';
+    $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' · refreshes every 2 minutes · page ' + PAGE_VER;
   } catch (e) {
     $('error').textContent = /busy/.test(e.message)
       ? 'ntfy (the free service the reports go through) asked this network to slow down. Showing the last reports this browser saw - it tries again in 5 minutes by itself.'
@@ -512,7 +512,8 @@ async function load() {
   render(sites);
   $('refresh').disabled = false;
 }
-$('refresh').addEventListener('click', load);
+// Refresh reloads the whole page (gets the newest dashboard too) - home-screen shortcuts on iPhone have no pull-to-refresh
+$('refresh').addEventListener('click', () => location.replace(location.pathname + '?r=' + Date.now()));
 load();
 setInterval(load, 120000);      // every 2 minutes (sites report every 15 minutes anyway)
 // phones pause pages in the background: refresh straight away when the page is opened again
