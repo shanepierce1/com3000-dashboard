@@ -64,6 +64,7 @@ $MinutesBeforeAlert = 10
 # Only a few channels out (a channel or two dipping low for a while): no phone alert unless at least
 # this many are out at once ... or one of them stays out this many minutes (0 = never alert for just a few).
 $MinChannelsOut     = 5
+$PickerRefreshSeconds = 30    # Channel Check: re-read the bitrates every this many seconds (lower = livelier, but busier)
 $FewChannelsMinutes = 300      # 5 hours - a blacked-out game shouldn't set off every phone
 # Rain fade: channels dropping on 3+ cards at once while the cards are fine = weak satellite signal.
 # No phone alerts (and no card resets) for that - unless it goes on this many hours (0 = never alert).
@@ -174,6 +175,13 @@ if ([int]$FewChannelsMinutes -eq 180) {
     $FewChannelsMinutes = 300
     try { $t = Get-Content $SettingsFile -Raw; $t2 = $t -replace '(?m)^(\$FewChannelsMinutes\s*=\s*)180\b', '${1}300'; if ($t2 -ne $t) { Set-Content -Path $SettingsFile -Value $t2.TrimEnd() -Encoding UTF8 } } catch {}
 }
+# 2026-11-14: new setting for Channel Check's refresh - add it to older settings files so it can be changed there
+try {
+    if ((Test-Path $SettingsFile) -and -not ((Get-Content $SettingsFile -Raw) -match '(?m)^\$PickerRefreshSeconds\s*=')) {
+        $t = (Get-Content $SettingsFile -Raw).TrimEnd() + "`r`n`$PickerRefreshSeconds = 30        # Channel Check: re-read the bitrates every this many seconds (lower = livelier but slower to use)"
+        Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
+    }
+} catch {}
 # ... and the "channels out at once" alert went from 3 to 5 channels.
 if ([int]$MinChannelsOut -eq 3) {
     $MinChannelsOut = 5
@@ -193,7 +201,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-14b'
+$ScriptVersion = '2026-11-14c'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -2364,7 +2372,7 @@ function Show-ChannelPicker {
         $i = & $current
         if ($st.Live) {
             if ($st.Live.Handle.IsCompleted) {
-                $job = $st.Live; $st.Live = $null; $st.LiveNext = (Get-Date).AddSeconds(4)
+                $job = $st.Live; $st.Live = $null; $st.LiveNext = (Get-Date).AddSeconds([Math]::Max(5, [int]$PickerRefreshSeconds))
                 try {
                     $html = Complete-PickerFetch $job
                     if ($i -ge 0 -and -not $st.Updating -and $st.Channels[$i].Internal) {
@@ -2417,12 +2425,13 @@ function Show-ChannelPicker {
             } elseif (((Get-Date) - $st.Live.Started).TotalSeconds -gt 60) {
                 Stop-PickerFetch $st.Live; $st.Live = $null; $st.LiveNext = Get-Date
             }
-        } elseif ($i -ge 0 -and -not $st.Updating -and (Get-Date) -ge $st.LiveNext) {
+        } elseif ($i -ge 0 -and -not $st.Updating -and (Get-Date) -ge $st.LiveNext -and -not ($st.TunedAt -and ((Get-Date) - $st.TunedAt).TotalSeconds -lt 15)) {
+            # (not in the first 15 seconds after a channel change - let the change go through first)
             $st.Live = if ($st.Channels[$i].Internal) { Start-PickerFetch "http://$(Get-ComIp)/cgi-bin/webcmd?screen=Qam" } else { Start-PickerFetch $PageUrl }
         }
     })
     # show "updating..." the moment you move to another channel
-    $lv.Add_SelectedIndexChanged({ if ($lv.SelectedIndices.Count) { $c = $st.Channels[$lv.SelectedIndices[0]]; $stLive.Text = "LIVE $($c.Virt) $($c.Name): updating..."; $stLive.ForeColor = [System.Drawing.Color]::Gray; $st.LiveNext = Get-Date } })
+    $lv.Add_SelectedIndexChanged({ if ($lv.SelectedIndices.Count) { $c = $st.Channels[$lv.SelectedIndices[0]]; $stLive.Text = "LIVE $($c.Virt) $($c.Name): updating..."; $stLive.ForeColor = [System.Drawing.Color]::Gray; $st.LiveNext = (Get-Date).AddSeconds(1) } })
 
     $f.Add_FormClosing({
         $tourTimer.Stop(); $tuneTimer.Stop(); $liveTimer.Stop(); $loadTimer.Stop(); $epgTimer.Stop(); foreach ($j in @(@($st.EpgJobs.Values) + @($st.EpgOvJob))) { if ($j) { try { Stop-PickerFetch $j } catch {} } }
@@ -3107,6 +3116,7 @@ if ($Setup) {
         "`$IntervalMinutes    = $interval        # check every this many minutes"
         "`$MinutesBeforeAlert = $delay        # something must be down this long before an alert"
         "`$MinChannelsOut     = $(if ($MinChannelsOut -ge 1) { [int]$MinChannelsOut } else { 5 })        # fewer channels than this out at once: no phone alert ..."
+        "`$PickerRefreshSeconds = $(if ([int]$PickerRefreshSeconds -ge 5) { [int]$PickerRefreshSeconds } else { 30 })        # Channel Check: re-read the bitrates every this many seconds (lower = livelier but slower to use)"
         "`$FewChannelsMinutes = $(if ($null -ne $FewChannelsMinutes) { [int]$FewChannelsMinutes } else { 300 })        # ... unless one stays out this many minutes (0 = never)"
         "`$RainFadeHours      = $(if ($null -ne $RainFadeHours) { [int]$RainFadeHours } else { 3 })        # rain fade (3+ cards dropping): no alerts unless it lasts this many hours (0 = never)"
         "`$ReminderMinutes    = $remind        # 'still down' reminder every this many minutes (0 = off)"
