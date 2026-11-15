@@ -176,7 +176,7 @@ button.clear.armed { color: var(--bad); border-color: var(--bad); }
 </div>
 <script>
 // Change this whenever a new index.html goes on GitHub: open copies of the old page see it and reload themselves.
-const PAGE_VER = '2026-11-13i';
+const PAGE_VER = '2026-11-14a';
 // ---- Settings ----------------------------------------------------------
 // The ntfy topic the site PCs send status reports to: your alerts topic + "-status".
 const TOPIC = 'com3000-alerts-x7q4m2-status';
@@ -378,15 +378,28 @@ function loadHidden() { try { return JSON.parse(localStorage.getItem(HIDE_KEY) |
 function saveHidden(h) { try { localStorage.setItem(HIDE_KEY, JSON.stringify(h)); } catch (e) {} }
 let hidden = loadHidden();
 
-// "Remove from dashboard": first click asks, second click removes (from this browser).
-// If the site ever sends a new report, it comes back by itself.
+// "Remove from dashboard": first click asks, second click removes - on every device (shared the same way
+// as Clear: kept in the shared clear list as "hide:<site>"). If the site ever sends a new report, it comes back by itself.
 document.addEventListener('click', ev => {
   const b = ev.target.closest('button.remove'); if (!b) return;
   const site = b.dataset.site;
   if (b.dataset.armed !== '1') { b.dataset.armed = '1'; b.textContent = 'Click again to remove ' + site; b.classList.add('armed'); return; }
   if (sites[site]) hidden[site] = rxTime(sites[site]);
+  cleared['hide:' + site] = hidden[site] || Date.now(); saveCleared(); shareCleared();
   delete sites[site]; save(sites); saveHidden(hidden); render(sites);
 });
+// apply removals made on other devices
+function applySharedHides() {
+  let changed = false;
+  for (const k in cleared) {
+    if (!k.startsWith('hide:')) continue;
+    const site = k.slice(5), upTo = +cleared[k];
+    if (sites[site] && rxTime(sites[site]) > upTo) continue;      // it reported since - keep it
+    if ((hidden[site] || 0) < upTo) { hidden[site] = upTo; changed = true; }
+    if (sites[site]) { delete sites[site]; changed = true; }
+  }
+  if (changed) { save(sites); saveHidden(hidden); }
+}
 
 let sites = loadSaved();
 
@@ -433,9 +446,10 @@ function when(t) {
 }
 function renderAlerts() {
   const sel = $('alertSite'), pick = sel.value;
-  const names = [...new Set([...Object.keys(sites), ...alerts.map(a => a.site)])].sort((a, b) => a.localeCompare(b));
+  // only locations on the dashboard (not old names: renamed, typos, removed) - their old alerts are left out too
+  const names = Object.keys(sites).sort((a, b) => a.localeCompare(b));
   sel.innerHTML = '<option value="">All locations</option>' + names.map(n => `<option${n === pick ? ' selected' : ''}>${esc(n)}</option>`).join('');
-  const list = alerts.filter(a => (!pick || a.site === pick) && !isCleared(a));
+  const list = alerts.filter(a => sites[a.site] && (!pick || a.site === pick) && !isCleared(a));
   const btn = $('clearAlerts'); btn.dataset.armed = ''; btn.classList.remove('armed');
   btn.textContent = 'Clear'; btn.title = pick ? 'Clear the alerts for ' + pick : 'Clear the alerts for all locations'; btn.disabled = !list.length;
   const undo = undoCleared ? `<div class="undo">Alerts cleared. <button type="button" id="undoClear">Undo</button></div>` : '';
@@ -465,7 +479,7 @@ document.addEventListener('click', e => {
     cleared[$('alertSite').value || '*'] = Date.now(); saveCleared(); showAll = false; renderAlerts(); shareCleared();
     clearTimeout(window.undoTimer); window.undoTimer = setTimeout(() => { undoCleared = null; renderAlerts(); }, 30000);
   }
-  if (e.target.id === 'undoClear') { cleared = undoCleared || {}; undoCleared = null; saveCleared(); renderAlerts(); shareCleared(); }
+  if (e.target.id === 'undoClear') { const keep = {}; for (const k in cleared) if (k.startsWith('hide:')) keep[k] = cleared[k]; cleared = Object.assign(undoCleared || {}, keep); undoCleared = null; saveCleared(); renderAlerts(); shareCleared(); }
   const m = e.target.closest('.msg.clip'); if (m) m.classList.remove('clip');
 });
 function lastAlert(site) { return alerts.find(a => a.site === site); }
@@ -513,7 +527,7 @@ async function load() {
         sites[r.site] = r;
       }
     }
-    save(sites);
+    applySharedHides(); save(sites);
     const weekAgo = Date.now() - 7 * 86400000;
     alerts = alerts.filter(a => a.rx >= weekAgo).sort((a, b) => b.rx - a.rx).slice(0, 400);
     saveAlerts();
