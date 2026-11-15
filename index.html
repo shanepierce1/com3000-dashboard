@@ -13,8 +13,8 @@
   --bg: #f3f5f7; --panel: #ffffff; --line: #dde2e8; --fg: #1b2530; --muted: #5d6b7a;
   --accent: #1f5f8b;
   --ok: #2c3a48; --ok-bg: #e6eaee; --warn: #6b3fa0; --warn-bg: #efe6fa;
-  --bad: #b3261e; --bad-bg: #fbe4e2; --idle: #5d6b7a; --idle-bg: #e8ecf0; --info: #1f5f8b; --info-bg: #e2eef7;
-  --dot-ok: #3d4a57; --dot-warn: #7b4fc4; --dot-bad: #e02424; --dot-idle: #8a96a3;
+  --bad: #b3261e; --bad-bg: #fbe4e2; --idle: #5d6b7a; --idle-bg: #e8ecf0; --off: #5c4400; --off-bg: #ffe680; --info: #1f5f8b; --info-bg: #e2eef7;
+  --dot-ok: #3d4a57; --dot-warn: #7b4fc4; --dot-bad: #e02424; --dot-idle: #8a96a3; --dot-off: #f2c200;
   --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
   color-scheme: light;
@@ -24,8 +24,8 @@
     --bg: #0f151b; --panel: #172029; --line: #26323e; --fg: #e4eaf0; --muted: #93a2b2;
     --accent: #6fb3e0;
     --ok: #e4eaf0; --ok-bg: #2a3540; --warn: #c9a2ff; --warn-bg: #2a1a3d; --bad: #ff8a80; --bad-bg: #3d1916;
-    --dot-ok: #c6d0da; --dot-warn: #b48cf5; --dot-bad: #ff5a4f; --dot-idle: #6b7785;
-    --idle: #93a2b2; --idle-bg: #222c36; --info: #6fb3e0; --info-bg: #142a3a;
+    --dot-ok: #c6d0da; --dot-warn: #b48cf5; --dot-bad: #ff5a4f; --dot-idle: #6b7785; --dot-off: #f2c94c;
+    --idle: #93a2b2; --idle-bg: #222c36; --off: #ffd966; --off-bg: #3d3200; --info: #6fb3e0; --info-bg: #142a3a;
     color-scheme: dark;
   }
 }
@@ -59,7 +59,7 @@ button.remove.armed { color: var(--bad); border-color: var(--bad); }
   clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 .ico.bad { border-radius: 4px; }
 .ico.bad { background: var(--dot-bad); }
-.ico.idle { background: var(--dot-idle); }
+.ico.idle { background: var(--dot-off); color: #3a2c00; }
 .sum.none { opacity: .6; }
 .sites { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 12px; align-items: start; }
 .site { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; align-content: start; min-width: 0; }
@@ -68,6 +68,8 @@ button.remove.armed { color: var(--bad); border-color: var(--bad); }
 .pill.lvl-bad { background: var(--bad); color: #fff; }
 .site-top.lvl-bad { border-top-width: 8px; }
 .site-top.lvl-warn { border-top-style: dashed; }
+/* monitor off / not reporting: yellow, dotted edge */
+.site-top.lvl-off { border-top: 6px dotted var(--dot-off); }
 .pill { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; color: var(--c); background: var(--cb); white-space: nowrap; }
 .site-body { padding: 0 14px 12px; display: grid; gap: 10px; min-width: 0; }
 .cards { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -176,7 +178,7 @@ button.clear.armed { color: var(--bad); border-color: var(--bad); }
 </div>
 <script>
 // Change this whenever a new index.html goes on GitHub: open copies of the old page see it and reload themselves.
-const PAGE_VER = '2026-11-14a';
+const PAGE_VER = '2026-11-14b';
 // ---- Settings ----------------------------------------------------------
 // The ntfy topic the site PCs send status reports to: your alerts topic + "-status".
 const TOPIC = 'com3000-alerts-x7q4m2-status';
@@ -204,9 +206,9 @@ function esc(s) { return String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;'
 // What state is a site in? Returns [label, color var, bg var, rank (lower = worse)]
 function rxTime(r) { return r.rx || Date.parse(r.t); }
 function siteState(r) {
-  if (r.page === 'off') return ['Monitor off', '--idle', '--idle-bg', 3];
+  if (r.page === 'off') return ['Monitor off', '--off', '--off-bg', 3];
   const age = (Date.now() - rxTime(r)) / 60000;
-  if (age > STALE_MIN) return ['Not reporting', '--idle', '--idle-bg', 0];
+  if (age > STALE_MIN) return ['Not reporting', '--off', '--off-bg', 0];
   if (r.page === 'down') return ['COM3000 unreachable', '--bad', '--bad-bg', 1];
   const down = (r.cards || []).filter(c => !c.up).length;
   if (down) return [(down === 1 ? 'Card offline' : down + ' cards offline') + (r.page === 'paused' ? ' · alerts paused' : ''), '--bad', '--bad-bg', 1];
@@ -261,7 +263,7 @@ function renderSite(r) {
   else if (r.page === 'paused') extra = `<div class="note">Alerts paused until ${clock(Date.parse(r.paused))}.</div>`;
   else if (r.via) extra = `<div class="note">Main card not answering. Reading the COM3000 from card ${esc(r.via)}.</div>`;
   return `<article class="site" style="--c:var(${c});--cb:var(${cb})">
-    <div class="site-top lvl-${c.slice(2)}"><span class="site-name">${esc(r.site)}</span><span class="pill lvl-${c.slice(2)}">${({'--ok':'✓ ','--warn':'▲ ','--bad':'✕ ','--idle':'– ','--info':'Ⅱ '}[c] || '')}${label}</span></div>
+    <div class="site-top lvl-${c.slice(2)}"><span class="site-name">${esc(r.site)}</span><span class="pill lvl-${c.slice(2)}">${({'--ok':'✓ ','--warn':'▲ ','--bad':'✕ ','--idle':'– ','--off':'– ','--info':'Ⅱ '}[c] || '')}${label}</span></div>
     <div class="site-body">
       ${extra}
       ${!removable && cards ? `<div class="cards">${cards}</div>` : ''}
