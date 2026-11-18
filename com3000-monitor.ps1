@@ -152,6 +152,8 @@ $ItachIp         = ''
 $ItachPort       = '1'          # iTach IR jack the box's emitter is on: 1, 2 or 3
 # USB capture card VLC opens in "AEP only" mode: its name as Windows shows it (e.g. 'USB Video'), or blank = the default one
 $CaptureDevice   = ''
+# capture size asked of the card, e.g. '1920x1080' or '1280x720' ('' = let the card pick, often a small blurry size)
+$CaptureSize     = ''
 
 # DAILY EPG REFRESH: every morning re-submit each blade's EPG page exactly as it is (same list,
 # same checkboxes) - like pressing Submit - so AEP boxes reload the guide. 24-hour HH:mm or 'off'.
@@ -203,6 +205,12 @@ try {
     }
 } catch {}
 try {
+    if ((Test-Path $SettingsFile) -and -not ((Get-Content $SettingsFile -Raw) -match '(?m)^\$CaptureSize\s*=')) {
+        $t = (Get-Content $SettingsFile -Raw).TrimEnd() + "`r`n`$CaptureSize        = ''        # capture card picture size, e.g. '1920x1080' or '1280x720' ('' = card's default)"
+        Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
+    }
+} catch {}
+try {
     if ((Test-Path $SettingsFile) -and -not ((Get-Content $SettingsFile -Raw) -match '(?m)^\$IrSender\s*=')) {
         $t = (Get-Content $SettingsFile -Raw).TrimEnd() + "`r`n`$IrSender           = 'usb'        # what sends the IR: 'usb' (USB IR unit) or 'itach'" + "`r`n`$ItachIp            = ''        # iTach address, e.g. '192.168.3.103' (only for 'itach')" + "`r`n`$ItachPort          = '1'        # iTach IR jack the box's emitter is on: 1, 2 or 3"
         Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
@@ -239,7 +247,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-18i'
+$ScriptVersion = '2026-11-18j'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -1950,6 +1958,7 @@ function Start-PickerVlc([string]$Vlc, [int]$Port, [string]$Source = '') {
         $Source = 'dshow://'; $cap = @(':live-caching=300')
         $dev = Get-CaptureDevice
         if ($dev) { $cap += "`":dshow-vdev=$dev`"" }
+        if ("$CaptureSize".Trim() -match '^\d+x\d+$') { $cap += ":dshow-size=$("$CaptureSize".Trim())"; $cap += ':dshow-aspect-ratio=16:9' }
     }
     $vlcArgs = @($Source) + $cap + @('--network-caching=2000', '--avcodec-hw=none', '--no-qt-video-autoresize',
                  '--extraintf=http', '--http-host=127.0.0.1', "--http-port=$($PickerVlcCtl.Port)", "--http-password=$($PickerVlcCtl.Password)")
@@ -3450,6 +3459,7 @@ if ($Setup) {
         "`$IrSender           = $(& $q $(if ("$IrSender" -eq 'itach') { 'itach' } else { 'usb' }))        # what sends the IR: 'usb' (USB IR unit) or 'itach'"
         "`$ItachIp            = $(& $q "$ItachIp")        # iTach address, e.g. '192.168.3.103' (only for 'itach')"
         "`$ItachPort          = $(& $q $(if ("$ItachPort" -in '1', '2', '3') { "$ItachPort" } else { '1' }))        # iTach IR jack the box's emitter is on: 1, 2 or 3"
+        "`$CaptureSize        = $(& $q "$CaptureSize")        # capture card picture size, e.g. '1920x1080' or '1280x720' ('' = card's default)"
         "`$CaptureDevice      = $(& $q "$CaptureDevice")        # USB capture card VLC opens in 'AEP only' mode, e.g. 'USB Video' (blank = the default one)"
         "`$PickerRefreshSeconds = $(if ([int]$PickerRefreshSeconds -ge 5) { [int]$PickerRefreshSeconds } else { 30 })        # Channel Check: re-read the bitrates every this many seconds (lower = livelier but slower to use)"
         "`$FewChannelsMinutes = $(if ($null -ne $FewChannelsMinutes) { [int]$FewChannelsMinutes } else { 300 })        # ... unless one stays out this many minutes (0 = never)"
