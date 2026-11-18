@@ -228,6 +228,25 @@ try {
         Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
     }
 } catch {}
+# ---- ONE-TIME CHANGE for every site (2026-11-18): new alert/reset timings, and the box remote turned on.
+# Runs once per site (a marker line goes in the settings file); a later hand edit at a site is left alone.
+# $BoxType is not touched, so sites already set to aep1 / white / dci keep their box.
+try {
+    $mcMark = '# one-time change 2026-11-18 applied'
+    if ((Test-Path $SettingsFile) -and -not ((Get-Content $SettingsFile -Raw).Contains($mcMark))) {
+        $t = (Get-Content $SettingsFile -Raw).TrimEnd()
+        $mcSet = [ordered]@{ MinutesBeforeAlert = '15'; ReminderMinutes = '10'; CardResetMinutes = '10'; SystemResetMinutes = '10'; AepRemote = "'on'" }
+        foreach ($n in $mcSet.Keys) {
+            $rx = [regex]('(?m)^(\$' + $n + '\s*=\s*)(\S+)')
+            $v = $mcSet[$n]
+            if ($rx.IsMatch($t)) { $t = $rx.Replace($t, { param($m) $m.Groups[1].Value + $v }, 1) } else { $t += "`r`n`$$n = $v" }
+        }
+        $t += "`r`n$mcMark"
+        Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
+        $MinutesBeforeAlert = 15; $ReminderMinutes = 10; $CardResetMinutes = 10; $SystemResetMinutes = 10; $AepRemote = 'on'
+        $script:MassChangeNote = 'One-time settings change applied: alert after 15 min, reminders every 10 min, card reset after 10 min, COM3000 reset after 10 min, box remote on'
+    }
+} catch {}
 # ... and the "channels out at once" alert went from 3 to 5 channels.
 if ([int]$MinChannelsOut -eq 3) {
     $MinChannelsOut = 5
@@ -247,7 +266,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-18k'
+$ScriptVersion = '2026-11-18l'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -2204,7 +2223,9 @@ function Register-AepPickerTask([string]$User) {
 
 function Show-ChannelPicker {
     # AEP remote needs admin rights for the IR unit: restart elevated through the admin task (no prompt), or ask once
-    if ("$AepRemote" -eq 'on' -and "$IrSender" -ne 'itach' -and -not $NoRelaunch -and -not (Test-Elevated)) {
+    $boxWasOn = $false; try { $boxWasOn = ((Get-Content $PickerPrefsFile -Raw | ConvertFrom-Json).AepOnly -eq 'yes') } catch {}
+    # (only when the box checkbox was left ticked - otherwise Channel Check opens normally, and asks when it's ticked)
+    if ("$AepRemote" -eq 'on' -and "$IrSender" -ne 'itach' -and $boxWasOn -and -not $NoRelaunch -and -not (Test-Elevated)) {
         $null = & schtasks.exe /Run /TN $AepTaskName 2>&1
         if ($LASTEXITCODE -eq 0) { return }
         try { Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Verb RunAs -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Picker -NoRelaunch" -ErrorAction Stop; return } catch {}
@@ -2400,6 +2421,14 @@ function Show-ChannelPicker {
         $aepPad.Visible = $chkAepOnly.Checked
         $chkAepOnly.Add_CheckedChanged({
             $st.Prefs.AepOnly = $(if ($chkAepOnly.Checked) { 'yes' } else { 'no' }); & $savePrefs
+            # the USB IR unit needs admin rights: ticked without them, restart Channel Check with them (it opens ticked)
+            if ($chkAepOnly.Checked -and "$IrSender" -ne 'itach' -and -not (Test-Elevated)) {
+                $null = & schtasks.exe /Run /TN $AepTaskName 2>&1
+                $ok = ($LASTEXITCODE -eq 0)
+                if (-not $ok) { try { Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Verb RunAs -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Picker -NoRelaunch" -ErrorAction Stop; $ok = $true } catch {} }
+                if ($ok) { $f.Close(); return }
+                & $setStatus "$BoxLabel needs admin rights for the IR unit - say Yes when asked"; return
+            }
             $aepPad.Visible = $chkAepOnly.Checked; & $fitBottom
             if ($chkAepOnly.Checked) {
                 # give the spare tuner back if we were using it
@@ -2410,7 +2439,7 @@ function Show-ChannelPicker {
             } else { & $setStatus 'Back to tuning the COM3000 spare tuner and streaming it to VLC.'; $tuneTimer.Stop(); $tuneTimer.Start() }
         })
         $aepTimer.Start()
-        if ("$IrSender" -ne 'itach' -and -not (Test-Elevated)) { $stLeft.Text = "$BoxLabel buttons need admin rights - close Channel Check and open it again, and say Yes"; $stLeft.ForeColor = [System.Drawing.Color]::DarkRed }
+        if ($chkAepOnly.Checked -and "$IrSender" -ne 'itach' -and -not (Test-Elevated)) { $stLeft.Text = "$BoxLabel buttons need admin rights - close Channel Check and open it again, and say Yes"; $stLeft.ForeColor = [System.Drawing.Color]::DarkRed }
     }
 
     $f.Controls.Add($lv); $f.Controls.Add($top)
@@ -3984,6 +4013,8 @@ if ($ReportNow) {
     }
     return
 }
+
+if ($script:MassChangeNote) { Write-Log $script:MassChangeNote }
 
 # ---- AEP remote turned on in Settings: set up the no-prompt admin start of Channel Check for whoever is logged on ----
 if ("$AepRemote" -eq 'on' -and "$IrSender" -ne 'itach' -and ([Security.Principal.WindowsIdentity]::GetCurrent()).IsSystem) {
