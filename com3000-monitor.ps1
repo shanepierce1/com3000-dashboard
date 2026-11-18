@@ -247,7 +247,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-18j'
+$ScriptVersion = '2026-11-18k'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -2326,7 +2326,7 @@ function Show-ChannelPicker {
     $st.AepTuneTo = ''; $st.AepTuneAt = [datetime]::MaxValue; $st.AepNextAt = [datetime]::MinValue
     # Up/Down in Channel Check also tune the AEP to the same channel (typed as its number, so the two always match).
     # Waits a moment after the last click, so clicking through several channels only sends the last one.
-    $aepFollow = { if ("$AepRemote" -ne 'on') { return }
+    $aepFollow = { if ("$AepRemote" -ne 'on' -or "$($st.Prefs.AepOnly)" -ne 'yes') { return }     # only when the box checkbox is ticked
         $i = & $current; if ($i -lt 0) { return }
         # channel number only: "12-0" -> 12 (the -0 is the sub-channel, not typed on the AEP)
         $n = ("$($st.Channels[$i].Virt)" -split '-')[0] -replace '\D', ''; if (-not $n) { return }
@@ -2389,22 +2389,25 @@ function Show-ChannelPicker {
         $bottomWrap.Controls.Add($bottom); $bottomWrap.Controls.Add($aepPad)
         # grow the bottom area when the left buttons need more rows (narrow window), never shorter than the pad
         $fitBottom = { try { $need = $bottom.GetPreferredSize((New-Object System.Drawing.Size([Math]::Max(100, $bottom.Width), 0))).Height + 4
-                             $h = [Math]::Max(154, $need); if ($bottomWrap.Height -ne $h) { $bottomWrap.Height = $h } } catch {} }
+                             $h = [Math]::Max($(if ($aepPad.Visible) { 154 } else { 30 }), $need); if ($bottomWrap.Height -ne $h) { $bottomWrap.Height = $h } } catch {} }
         $bottom.Add_Resize({ & $fitBottom })
         $f.Add_Shown({ & $fitBottom })
         # AEP only: picking a channel just tunes the AEP (watch it through the capture card) - the COM3000's spare tuner is left alone
         $chkAepOnly = New-Object System.Windows.Forms.CheckBox; $chkAepOnly.Text = "$BoxLabel only (don't tune the COM3000)"; $chkAepOnly.AutoSize = $true
         $chkAepOnly.Margin = (New-Object System.Windows.Forms.Padding(12,8,0,0)); $chkAepOnly.Checked = ("$($st.Prefs.AepOnly)" -eq 'yes')
         $bottom.Controls.Add($chkAepOnly)
+        # the box's remote pad only shows while the box checkbox is ticked
+        $aepPad.Visible = $chkAepOnly.Checked
         $chkAepOnly.Add_CheckedChanged({
             $st.Prefs.AepOnly = $(if ($chkAepOnly.Checked) { 'yes' } else { 'no' }); & $savePrefs
+            $aepPad.Visible = $chkAepOnly.Checked; & $fitBottom
             if ($chkAepOnly.Checked) {
                 # give the spare tuner back if we were using it
                 if ($st.TunedAt -and $st.Prefs.Tuner) { try { [void](Invoke-PickerRelease $st.Prefs.Tuner) } catch {}; $st.TunedAt = $null }
                 & $playSource $captureSrc
                 & $setStatus "$BoxLabel only: picking a channel tunes just the $BoxLabel. VLC shows the capture card."
                 & $aepFollow
-            } else { & $setStatus "Back to tuning the COM3000 spare tuner (and the $BoxLabel on Up/Down)."; $tuneTimer.Stop(); $tuneTimer.Start() }
+            } else { & $setStatus 'Back to tuning the COM3000 spare tuner and streaming it to VLC.'; $tuneTimer.Stop(); $tuneTimer.Start() }
         })
         $aepTimer.Start()
         if ("$IrSender" -ne 'itach' -and -not (Test-Elevated)) { $stLeft.Text = "$BoxLabel buttons need admin rights - close Channel Check and open it again, and say Yes"; $stLeft.ForeColor = [System.Drawing.Color]::DarkRed }
