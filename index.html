@@ -139,6 +139,7 @@ button.clear.armed { color: var(--bad); border-color: var(--bad); }
 .eplist { font-size: 12px; color: var(--muted); font-weight: 400; }
 .since { display: block; font-size: 11px; font-weight: 400; color: var(--muted); font-family: inherit; text-transform: none; letter-spacing: 0; }
 @media (prefers-reduced-motion: no-preference) { .site { transition: border-color .2s; } }
+.muted { color: var(--muted, #6b7785); font-size: .92em; }
 </style>
 </head>
 <body>
@@ -178,7 +179,7 @@ button.clear.armed { color: var(--bad); border-color: var(--bad); }
 </div>
 <script>
 // Change this whenever a new index.html goes on GitHub: open copies of the old page see it and reload themselves.
-const PAGE_VER = '2026-11-14b';
+const PAGE_VER = '2026-11-18a';
 // ---- Settings ----------------------------------------------------------
 // The ntfy topic the site PCs send status reports to: your alerts topic + "-status".
 const TOPIC = 'com3000-alerts-x7q4m2-status';
@@ -277,7 +278,8 @@ function renderSite(r) {
         <dt>Recent resets</dt><dd>${lastTxt}</dd>
         ${r.epgBad && r.page !== 'down' && !(r.cards || []).some(c => !c.up) ? `<dt>EPG</dt><dd class="warnc" title="${esc(r.epgBadList)}">${r.epgBad} wrong – run Fix EPG${r.epgBadList ? `<br><span class="eplist">${esc(r.epgBadList)}${r.epgBad > 12 ? ', …' : ''}</span>` : ''}</dd>` : ''}
         <dt>Last backup</dt><dd>${r.backup ? esc(r.backup) : '—'}</dd>
-        <dt>Version</dt><dd${!r.ver || r.ver < newestVer ? ' class="warnc"' : ''}>${r.ver ? esc(r.ver) : 'older'}${!r.ver || r.ver < newestVer ? ' – update com3000-monitor.ps1' : ''}</dd>
+        ${cardSwRow(r)}
+        <dt>Monitor version</dt><dd${!r.ver || r.ver < newestVer ? ' class="warnc"' : ''}>${r.ver ? esc(r.ver) : 'older'}${!r.ver || r.ver < newestVer ? ' – update com3000-monitor.ps1' : ''}</dd>
         ${r.epgRef && r.epgRef.at ? `<dt>EPG refresh</dt><dd${r.epgRef.ok ? '' : ' class="warnc"'}>${r.epgRef.ok ? 'Refreshed' : 'Failed'} ${clock(Date.parse(r.epgRef.at) - (r.rx ? Date.parse(r.t) - r.rx : 0))}</dd>` : ''}
       </dl>
       ${removable ? `<div><button type="button" class="remove" data-site="${esc(r.site)}">Remove from dashboard</button></div>` : ''}
@@ -380,6 +382,16 @@ function loadHidden() { try { return JSON.parse(localStorage.getItem(HIDE_KEY) |
 function saveHidden(h) { try { localStorage.setItem(HIDE_KEY, JSON.stringify(h)); } catch (e) {} }
 let hidden = loadHidden();
 
+// COM3000 card software (from the Info page, read hourly): one line when all cards match, purple when they don't
+function cardSwRow(r) {
+  if (!r.sw) return '';
+  const by = {};
+  for (const part of String(r.sw).split('|')) { const [slot, ver] = part.split('='); if (slot && ver) (by[ver] = by[ver] || []).push(slot); }
+  const vers = Object.keys(by).sort().reverse();
+  if (!vers.length) return '';
+  if (vers.length === 1) return `<dt>Card software</dt><dd>${esc(vers[0])} <span class="muted">(all ${by[vers[0]].length} cards)</span></dd>`;
+  return `<dt>Card software</dt><dd class="warnc">Mixed: ${vers.map(v => `${esc(v)} (slot${by[v].length > 1 ? 's' : ''} ${by[v].join(', ')})`).join(' · ')}</dd>`;
+}
 // "Remove from dashboard": first click asks, second click removes - on every device (shared the same way
 // as Clear: kept in the shared clear list as "hide:<site>"). If the site ever sends a new report, it comes back by itself.
 document.addEventListener('click', ev => {

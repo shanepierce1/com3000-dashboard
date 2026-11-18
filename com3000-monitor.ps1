@@ -40,7 +40,8 @@ param(
     [switch]$OpenBlades,
     [switch]$ShowIp,
     [switch]$SetWallpaper,
-    [switch]$ReportNow
+    [switch]$ReportNow,
+    [switch]$NoRelaunch
 )
 
 # ======================== SETTINGS ========================
@@ -139,6 +140,18 @@ $NetRepair       = 'on'
 $Wallpaper       = 'blue'
 # Other pages the 'COM3000 Blades' icon opens after the blades, e.g. a streamer: '192.168.3.200' (comma-separated, or blank)
 $ExtraTabs       = ''
+# AEP REMOTE in Channel Check: control a DIRECTV AEP box through the PC's USB Media Center IR unit (the one iRCommand2
+# uses - close iRCommand2 while Channel Check is open). 'on' or 'off'. Jack = which emitter jack: 'both', '1' or '2'.
+$AepRemote       = 'off'
+$AepJack         = 'both'
+# which box the AEP remote controls (each has its own IR codes): 'aep2', 'aep1', 'white' (White cable box) or 'dci' (DCI401)
+$BoxType         = 'aep2'
+# what sends the IR: 'usb' (the USB Media Center IR unit) or 'itach' (Global Cache iTach on the network)
+$IrSender        = 'usb'
+$ItachIp         = ''
+$ItachPort       = '1'          # iTach IR jack the box's emitter is on: 1, 2 or 3
+# USB capture card VLC opens in "AEP only" mode: its name as Windows shows it (e.g. 'USB Video'), or blank = the default one
+$CaptureDevice   = ''
 
 # DAILY EPG REFRESH: every morning re-submit each blade's EPG page exactly as it is (same list,
 # same checkboxes) - like pressing Submit - so AEP boxes reload the guide. 24-hour HH:mm or 'off'.
@@ -182,6 +195,31 @@ try {
         Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
     }
 } catch {}
+# 2026-11-17: AEP remote settings (off until turned on)
+try {
+    if ((Test-Path $SettingsFile) -and -not ((Get-Content $SettingsFile -Raw) -match '(?m)^\$AepRemote\s*=')) {
+        $t = (Get-Content $SettingsFile -Raw).TrimEnd() + "`r`n`$AepRemote          = 'off'        # 'on' = AEP remote in Channel Check, through the USB IR unit (close iRCommand2 while using it)" + "`r`n`$AepJack            = 'both'        # IR emitter jack on the USB IR unit: 'both', '1' or '2'"
+        Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
+    }
+} catch {}
+try {
+    if ((Test-Path $SettingsFile) -and -not ((Get-Content $SettingsFile -Raw) -match '(?m)^\$IrSender\s*=')) {
+        $t = (Get-Content $SettingsFile -Raw).TrimEnd() + "`r`n`$IrSender           = 'usb'        # what sends the IR: 'usb' (USB IR unit) or 'itach'" + "`r`n`$ItachIp            = ''        # iTach address, e.g. '192.168.3.103' (only for 'itach')" + "`r`n`$ItachPort          = '1'        # iTach IR jack the box's emitter is on: 1, 2 or 3"
+        Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
+    }
+} catch {}
+try {
+    if ((Test-Path $SettingsFile) -and -not ((Get-Content $SettingsFile -Raw) -match '(?m)^\$BoxType\s*=')) {
+        $t = (Get-Content $SettingsFile -Raw).TrimEnd() + "`r`n`$BoxType            = 'aep2'        # box the AEP remote controls: 'aep2', 'aep1', 'white' or 'dci'"
+        Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
+    }
+} catch {}
+try {
+    if ((Test-Path $SettingsFile) -and -not ((Get-Content $SettingsFile -Raw) -match '(?m)^\$CaptureDevice\s*=')) {
+        $t = (Get-Content $SettingsFile -Raw).TrimEnd() + "`r`n`$CaptureDevice      = ''        # USB capture card VLC opens in 'AEP only' mode, e.g. 'USB Video' (blank = the default one)"
+        Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
+    }
+} catch {}
 # ... and the "channels out at once" alert went from 3 to 5 channels.
 if ([int]$MinChannelsOut -eq 3) {
     $MinChannelsOut = 5
@@ -201,7 +239,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-14c'
+$ScriptVersion = '2026-11-18i'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -380,7 +418,7 @@ function Get-ChannelLabel($c) {
 }
 
 function Load-State {
-    $s = @{ counts = @{}; alerted = @{}; lastSent = @{}; labels = @{}; names = @{}; devices = @{}; missing = @{}; good = @{}; slotOf = @{}; pending = @{}; nvSince = @{}; resetDay = @{}; resetAt = @{}; gnSince = @{}; sysResetDay = ''; sysResetAt = ''; sysResetSlots = ''; sysSkipDay = ''; pdSince = ''; statusSig = ''; statusAt = ''; quiet = @{}; held = @{}; rainSince = ''; rainLast = ''; rainAlerted = ''; updCheckAt = ''; epgBad = 0; epgBadList = ''; epgCheckAt = ''; epgRefDay = ''; epgRefFails = 0; epgRefNext = ''; epgRefAt = ''; epgRefOk = ''; lastBackup = ''; netDown = ''; netCycle = ''; netCut = ''; netBootOk = ''; netStep = 0; netStepAt = ''; netReboot = ''; netTried = ''; clr = ''; backupFails = 0; backupAlerted = ''; failCount = 0; failAlerted = $false }
+    $s = @{ counts = @{}; alerted = @{}; lastSent = @{}; labels = @{}; names = @{}; devices = @{}; missing = @{}; good = @{}; slotOf = @{}; pending = @{}; nvSince = @{}; resetDay = @{}; resetAt = @{}; gnSince = @{}; sysResetDay = ''; sysResetAt = ''; sysResetSlots = ''; sysSkipDay = ''; pdSince = ''; statusSig = ''; statusAt = ''; quiet = @{}; held = @{}; rainSince = ''; rainLast = ''; rainAlerted = ''; updCheckAt = ''; epgBad = 0; epgBadList = ''; epgCheckAt = ''; cardSw = ''; cardUp = ''; swCheckAt = ''; epgRefDay = ''; epgRefFails = 0; epgRefNext = ''; epgRefAt = ''; epgRefOk = ''; lastBackup = ''; netDown = ''; netCycle = ''; netCut = ''; netBootOk = ''; netStep = 0; netStepAt = ''; netReboot = ''; netTried = ''; clr = ''; backupFails = 0; backupAlerted = ''; failCount = 0; failAlerted = $false }
     if (Test-Path $StateFile) {
         try {
             $j = Get-Content $StateFile -Raw | ConvertFrom-Json
@@ -412,6 +450,9 @@ function Load-State {
             $s.updCheckAt    = [string]$j.updCheckAt
             $s.epgBadList    = [string]$j.epgBadList
             $s.epgCheckAt    = [string]$j.epgCheckAt
+            $s.cardSw        = [string]$j.cardSw
+            $s.cardUp        = [string]$j.cardUp
+            $s.swCheckAt     = [string]$j.swCheckAt
             $s.netStep       = [int]$j.netStep
             $s.netStepAt     = [string]$j.netStepAt
             $s.netReboot     = [string]$j.netReboot
@@ -495,6 +536,21 @@ function Clear-Item($s, [string]$Key) {
 
 # Downloads the page. Talks to the COM3000 directly (no proxy), and if the page keeps
 # streaming / never finishes, uses whatever arrived instead of hanging.
+# The COM3000 Info page's card table: slot, software version and uptime per card
+function Get-CardSoftware([string]$Html) {
+    $out = @(); $hdr = $null
+    foreach ($row in [regex]::Matches($Html, '(?is)<tr[^>]*>(.*?)</tr>')) {
+        $cells = @([regex]::Matches($row.Groups[1].Value, '(?is)<t[hd][^>]*>(.*?)</t[hd]>') | ForEach-Object { ([regex]::Replace($_.Groups[1].Value, '<[^>]+>', '') -replace '&nbsp;', ' ').Trim() })
+        if (-not $hdr) { if ($cells -contains 'SW_Version' -and $cells -contains 'Slot') { $hdr = $cells }; continue }
+        $off = $hdr.Count - $cells.Count          # the first card's row also has the (merged) Chassis cell; the others don't
+        $iSl = [array]::IndexOf($hdr, 'Slot') - $off; $iSw = [array]::IndexOf($hdr, 'SW_Version') - $off; $iUp = [array]::IndexOf($hdr, 'Up_Time') - $off
+        if ($iSl -lt 0 -or $iSw -lt 0 -or $iSw -ge $cells.Count) { continue }
+        if ($cells[$iSl] -notmatch '^\d+$') { continue }
+        $out += [pscustomobject]@{ Slot = $cells[$iSl]; Sw = $cells[$iSw]; Up = $(if ($iUp -ge 0 -and $iUp -lt $cells.Count) { $cells[$iUp] } else { '' }) }
+    }
+    , $out
+}
+
 function Get-PageHtml([string]$Url) {
     $req = [System.Net.HttpWebRequest]::Create($Url)
     $req.Timeout = 30000
@@ -1865,12 +1921,37 @@ function Get-PickerLive([string]$Html, [string]$Virt) {
 # VLC options for a smoother, steadier network stream: a 2-second buffer and software decoding.
 # (Deinterlacing is left to VLC's own menu: Video > Deinterlace - it can crash VLC on some video drivers.)
 $PickerVlcCtl = @{ Port = 9091; Password = 'com3000' }   # VLC's remote control, reachable from this PC only
+# Video capture devices Windows has (DirectShow), and the one to use: the setting if filled in, otherwise the first
+# real capture card - skipping virtual cameras like "OBS Virtual Camera" (VLC can't capture from those)
+function Get-CaptureDevices {
+    $out = @()
+    foreach ($root in 'Registry::HKEY_CLASSES_ROOT\CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance', 'Registry::HKEY_CLASSES_ROOT\WOW6432Node\CLSID\{860BB310-5D01-11d0-BD3B-00A0C911CE86}\Instance') {
+        try { foreach ($k in @(Get-ChildItem $root -ErrorAction Stop)) { $n = (Get-ItemProperty $k.PSPath -ErrorAction SilentlyContinue).FriendlyName; if ($n) { $out += "$n" } } } catch {}
+    }
+    @($out | Select-Object -Unique)
+}
+function Get-CaptureDevice {
+    if ("$CaptureDevice".Trim()) { return "$CaptureDevice".Trim() }
+    $real = @(Get-CaptureDevices | Where-Object { $_ -notmatch 'OBS|virtual|XSplit|ManyCam|Snap Camera|NVIDIA Broadcast|Streamlabs|vMix|Screen Capture' })
+    $pick = @($real | Where-Object { $_ -match 'USB|capture|HDMI|video|Cam Link|Elgato|AVerMedia|Magewell|Hauppauge|WinTV|grabber|UVC' } | Select-Object -First 1)
+    if ($pick) { return $pick[0] }
+    if ($real) { return $real[0] }
+    return ''
+}
+
 function Start-PickerVlc([string]$Vlc, [int]$Port, [string]$Source = '') {
     if (-not $Source) { $Source = "udp://@:$Port" }
     # --avcodec-hw=none: decode in software. Hardware decoding can crash VLC when the stream
     # changes format mid-way (which happens on every channel change, e.g. 720p <-> 1080i).
     # --no-qt-video-autoresize: keep the VLC window the size you made it when the channel changes
-    $vlcArgs = @($Source, '--network-caching=2000', '--avcodec-hw=none', '--no-qt-video-autoresize',
+    $cap = @()
+    if ($Source -like 'dshow:*') {
+        # USB capture card: pick the device (if set) and keep the delay low
+        $Source = 'dshow://'; $cap = @(':live-caching=300')
+        $dev = Get-CaptureDevice
+        if ($dev) { $cap += "`":dshow-vdev=$dev`"" }
+    }
+    $vlcArgs = @($Source) + $cap + @('--network-caching=2000', '--avcodec-hw=none', '--no-qt-video-autoresize',
                  '--extraintf=http', '--http-host=127.0.0.1', "--http-port=$($PickerVlcCtl.Port)", "--http-password=$($PickerVlcCtl.Password)")
     Start-Process $Vlc -ArgumentList $vlcArgs
 }
@@ -1973,7 +2054,153 @@ function Close-PickerAndVlc {
     Start-Sleep -Milliseconds 300
 }
 
+# ---------------------------------------------------------------------------
+# AEP REMOTE: DIRECTV-format IR codes sent through the USB Media Center IR unit (Windows IR port driver).
+# Codes found on an AEP2 box, 2026-11-17. The IR unit only opens for admin programs, so Channel Check runs
+# elevated (through the "COM3000 Channel Check (admin)" task - no prompt) when the AEP remote is on.
+# AEP2: DIRECTV format (device 12). AEP1: NEC format, address 16 20 (from that site's iRCommand2 file, 2026-11-18).
+$AepCodeSets = @{
+    aep2 = [ordered]@{ Guide = 0x28; Menu = 0x20; Info = 0x2e; Exit = 0x27; Up = 0x21; Down = 0x22; Left = 0x23; Right = 0x24; OK = 0x25
+        'CH+' = 0x0d; 'CH-' = 0x0e; '1' = 0x01; '2' = 0x02; '3' = 0x03; '4' = 0x04; '5' = 0x05; '6' = 0x06; '7' = 0x07; '8' = 0x08; '9' = 0x09; '0' = 0x11; Admin = 0xaa }
+    aep1 = [ordered]@{ Guide = 0xc0; Menu = 0x47; Info = 0xa6; Exit = 0x48; Up = 0x15; Down = 0x16; Left = 0x17; Right = 0x18; OK = 0x19
+        'CH+' = 0x33; 'CH-' = 0x34; '1' = 0x01; '2' = 0x02; '3' = 0x03; '4' = 0x04; '5' = 0x05; '6' = 0x06; '7' = 0x07; '8' = 0x08; '9' = 0x09; '0' = 0x0a; Admin = 0x72 }
+    # White cable box ("W/ Converter"): NEC format, address 01 fd. Power dc found by testing 2026-11-18 (off = color bars). No admin code.
+    white = [ordered]@{ Power = 0xdc; Guide = 0xd6; Menu = 0x95; Info = 0x8c; Exit = 0xc5; Up = 0xca; Down = 0xd2; Left = 0x99; Right = 0xc1; OK = 0xce
+        'CH+' = 0x80; 'CH-' = 0x81; '1' = 0x92; '2' = 0x93; '3' = 0xcc; '4' = 0x8e; '5' = 0x8f; '6' = 0xc8; '7' = 0x8a; '8' = 0x8b; '9' = 0xc4; '0' = 0x87 }
+    # Motorola/Arris DCI401: "GI cable" format (Motorola's standard codes). No Info or admin code in its remote.
+    dci = [ordered]@{ Power = 10; Guide = 48; Menu = 25; Exit = 18; Up = 52; Down = 53; Left = 54; Right = 55; OK = 17
+        'CH+' = 11; 'CH-' = 12; '1' = 1; '2' = 2; '3' = 3; '4' = 4; '5' = 5; '6' = 6; '7' = 7; '8' = 8; '9' = 9; '0' = 0 }
+}
+# the box's name on Channel Check's buttons and messages
+$BoxLabel = switch ("$BoxType") { 'aep1' { 'AEP1' } 'white' { 'White box' } 'dci' { 'DCI401' } default { 'AEP2' } }
+$AepCodes = if ("$BoxType" -in 'aep1', 'white', 'dci') { $AepCodeSets["$BoxType"] } else { $AepCodeSets.aep2 }
+$AepTaskName = 'COM3000 Channel Check (admin)'
+function Add-MceIr {
+    if ('MceIr' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System; using System.Runtime.InteropServices;
+public static class MceIr {
+  [StructLayout(LayoutKind.Sequential)] struct SP_DEVICE_INTERFACE_DATA { public int cbSize; public Guid g; public int Flags; public IntPtr Reserved; }
+  [DllImport("setupapi.dll", SetLastError=true)] static extern IntPtr SetupDiGetClassDevs(ref Guid g, IntPtr e, IntPtr h, int flags);
+  [DllImport("setupapi.dll", SetLastError=true)] static extern bool SetupDiEnumDeviceInterfaces(IntPtr s, IntPtr d, ref Guid g, int i, ref SP_DEVICE_INTERFACE_DATA did);
+  [DllImport("setupapi.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern bool SetupDiGetDeviceInterfaceDetail(IntPtr s, ref SP_DEVICE_INTERFACE_DATA did, IntPtr detail, int size, out int req, IntPtr dev);
+  [DllImport("setupapi.dll")] static extern bool SetupDiDestroyDeviceInfoList(IntPtr s);
+  [DllImport("kernel32.dll", SetLastError=true, CharSet=CharSet.Unicode)] static extern IntPtr CreateFile(string n, uint acc, uint share, IntPtr sa, uint disp, uint flags, IntPtr t);
+  [DllImport("kernel32.dll", SetLastError=true)] static extern bool DeviceIoControl(IntPtr h, uint code, byte[] inB, int inS, byte[] outB, int outS, out int ret, IntPtr ov);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr h);
+  static readonly Guid IRPORT = new Guid("7951772d-cd50-49b7-b103-2baac494fc57");
+  static string FindPath() {
+    Guid g = IRPORT; IntPtr s = SetupDiGetClassDevs(ref g, IntPtr.Zero, IntPtr.Zero, 0x12);
+    if (s == new IntPtr(-1)) return null;
+    try {
+      var did = new SP_DEVICE_INTERFACE_DATA(); did.cbSize = Marshal.SizeOf(did);
+      if (!SetupDiEnumDeviceInterfaces(s, IntPtr.Zero, ref g, 0, ref did)) return null;
+      int req; SetupDiGetDeviceInterfaceDetail(s, ref did, IntPtr.Zero, 0, out req, IntPtr.Zero);
+      IntPtr buf = Marshal.AllocHGlobal(req);
+      try {
+        Marshal.WriteInt32(buf, IntPtr.Size == 8 ? 8 : 6);
+        if (!SetupDiGetDeviceInterfaceDetail(s, ref did, buf, req, out req, IntPtr.Zero)) return null;
+        return Marshal.PtrToStringUni(new IntPtr(buf.ToInt64() + 4));
+      } finally { Marshal.FreeHGlobal(buf); }
+    } finally { SetupDiDestroyDeviceInfoList(s); }
+  }
+  public static string Send(int[] rlc, int carrierHz, int portMask) {
+    string path = FindPath(); if (path == null) return "No USB IR unit found";
+    IntPtr h = CreateFile(path, 0xC0000000, 3, IntPtr.Zero, 3, 0, IntPtr.Zero);
+    if (h == new IntPtr(-1)) { int e = Marshal.GetLastWin32Error(); return e == 5 ? "IR unit refused (needs admin, or iRCommand2 is using it)" : "Can't open the IR unit (error " + e + ")"; }
+    try {
+      int p = IntPtr.Size; byte[] prm = new byte[p * 4];
+      Put(prm, 0, portMask, p); Put(prm, p, 1000000 / carrierHz, p);
+      int dataBytes = rlc.Length * 4; int padded = (dataBytes + p - 1) / p * p;
+      byte[] chunk = new byte[p * 3 + padded];
+      Put(chunk, p, 1, p); Put(chunk, 2 * p, dataBytes, p);
+      for (int i = 0; i < rlc.Length; i++) BitConverter.GetBytes(rlc[i]).CopyTo(chunk, p * 3 + i * 4);
+      int ret;
+      if (!DeviceIoControl(h, 0x0F608015, prm, prm.Length, chunk, chunk.Length, out ret, IntPtr.Zero)) return "IR send failed (error " + Marshal.GetLastWin32Error() + ")";
+      return "OK";
+    } finally { CloseHandle(h); }
+  }
+  static void Put(byte[] b, int at, long v, int size) { Array.Copy(BitConverter.GetBytes(v), 0, b, at, size); }
+}
+'@
+}
+# one DIRECTV frame: {38k,600,msb} 10,-2, 8 two-bit symbols (device 12, function, check), 1,-50
+function Get-DtvRlc([int]$Code, [int]$Dev = 12) {
+    $sym = @(@(1, -1), @(1, -2), @(2, -1), @(2, -2))
+    $chk = (7 * (($Code -shr 6) -band 3) + 5 * (($Code -shr 4) -band 3) + 3 * (($Code -shr 2) -band 3) + ($Code -band 3)) -band 15
+    $v = ($Dev -shl 12) -bor ($Code -shl 4) -bor $chk
+    $o = New-Object System.Collections.Generic.List[int]
+    $o.Add(6000); $o.Add(-1200)
+    for ($i = 14; $i -ge 0; $i -= 2) { $x = $sym[($v -shr $i) -band 3]; $o.Add($x[0] * 600); $o.Add($x[1] * 600) }
+    $o.Add(600); $o.Add(-30000)
+    , $o.ToArray()
+}
+# one NEC frame (AEP1): 9000,-4500, 32 bits LSB first (address lo, address hi, command, ~command) as 560/-560 or 560/-1690, 560, gap
+function Get-NecRlc([int]$Code, [int]$A1 = 0x16, [int]$A2 = 0x20) {
+    $o = New-Object System.Collections.Generic.List[int]
+    $o.Add(9000); $o.Add(-4500)
+    foreach ($by in @($A1, $A2, ($Code -band 255), ((-bnot $Code) -band 255))) {
+        for ($i = 0; $i -lt 8; $i++) { $o.Add(560); $o.Add($(if (($by -shr $i) -band 1) { -1690 } else { -560 })) }
+    }
+    $o.Add(560); $o.Add(-40000)
+    , $o.ToArray()
+}
+# one GI cable frame (Motorola DCI401): {38.7k,490} 18,-9, F:8 D:4 C:4 (LSB first) as 1,-4.5 or 1,-9, then 1, gap
+function Get-GiRlc([int]$Code, [int]$Dev = 0) {
+    $chk = (-(($Code -band 15) + (($Code -shr 4) -band 15) + $Dev)) -band 15
+    $v = ($Code -band 255) -bor (($Dev -band 15) -shl 8) -bor ($chk -shl 12)
+    $o = New-Object System.Collections.Generic.List[int]
+    $o.Add(8820); $o.Add(-4410)
+    for ($i = 0; $i -lt 16; $i++) { $o.Add(490); $o.Add($(if (($v -shr $i) -band 1) { -4410 } else { -2205 })) }
+    $o.Add(490); $o.Add(-30000)
+    , $o.ToArray()
+}
+# iTach: the same signal as Global Cache's "sendir" command, over the network (TCP 4998), times in carrier cycles
+function Send-ItachIr([int[]]$Rlc, [int]$Hz) {
+    $ip = "$ItachIp".Trim(); if (-not $ip) { return 'No iTach address in COM3000 Settings ($ItachIp)' }
+    $port = if ("$ItachPort" -in '1', '2', '3') { "$ItachPort" } else { '1' }
+    $cyc = @($Rlc | ForEach-Object { [Math]::Max(1, [Math]::Min(65535, [int][Math]::Round([Math]::Abs($_) * $Hz / 1000000.0))) })
+    $cmd = "sendir,1:$port,1,$Hz,1,1," + ($cyc -join ',') + "`r"
+    $c = New-Object System.Net.Sockets.TcpClient
+    try {
+        $ar = $c.BeginConnect($ip, 4998, $null, $null)
+        if (-not $ar.AsyncWaitHandle.WaitOne(1500) -or -not $c.Connected) { return "iTach $ip isn't answering" }
+        $c.EndConnect($ar); $ns = $c.GetStream(); $ns.ReadTimeout = 1500
+        $b = [Text.Encoding]::ASCII.GetBytes($cmd); $ns.Write($b, 0, $b.Length)
+        $buf = New-Object byte[] 256; $n = $ns.Read($buf, 0, 256); $reply = [Text.Encoding]::ASCII.GetString($buf, 0, $n).Trim()
+        if ($reply -like 'completeir*') { 'OK' } else { "iTach said: $reply" }
+    } catch { "iTach error: $($_.Exception.Message)" } finally { $c.Close() }
+}
+function Send-AepKey([int]$Code) {
+    $mask = switch ("$AepJack") { '1' { 1 } '2' { 2 } default { 3 } }
+    $rlc = switch ("$BoxType") { 'aep1' { Get-NecRlc $Code 0x16 0x20 } 'white' { Get-NecRlc $Code 0x01 0xfd } 'dci' { Get-GiRlc $Code } default { Get-DtvRlc $Code } }
+    $khz = if ("$BoxType" -eq 'dci') { 38700 } else { 38000 }
+    if ("$IrSender" -eq 'itach') { return (Send-ItachIr $rlc $khz) }
+    try { Add-MceIr; [MceIr]::Send($rlc, $khz, $mask) } catch { "IR error: $($_.Exception.Message)" }
+}
+function Test-Elevated { try { ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) } catch { $false } }
+# the task that starts Channel Check with admin rights for the logged-on user, without a prompt
+function Register-AepPickerTask([string]$User) {
+    if (-not $User) { return $false }
+    $psx = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+    $arg = "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Picker -NoRelaunch"
+    try {
+        $a = New-ScheduledTaskAction -Execute $psx -Argument $arg -WorkingDirectory $ScriptDir
+        $pr = New-ScheduledTaskPrincipal -UserId $User -LogonType Interactive -RunLevel Highest
+        $se = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+        Register-ScheduledTask -TaskName $AepTaskName -Action $a -Principal $pr -Settings $se -Force -ErrorAction Stop | Out-Null
+        return $true
+    } catch { return $false }
+}
+
 function Show-ChannelPicker {
+    # AEP remote needs admin rights for the IR unit: restart elevated through the admin task (no prompt), or ask once
+    if ("$AepRemote" -eq 'on' -and "$IrSender" -ne 'itach' -and -not $NoRelaunch -and -not (Test-Elevated)) {
+        $null = & schtasks.exe /Run /TN $AepTaskName 2>&1
+        if ($LASTEXITCODE -eq 0) { return }
+        try { Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Verb RunAs -WindowStyle Hidden -ArgumentList "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" -Picker -NoRelaunch" -ErrorAction Stop; return } catch {}
+        # (said No to the prompt: open without the AEP remote working)
+    }
     Close-PickerAndVlc
     Add-Type -AssemblyName System.Windows.Forms, System.Drawing, Microsoft.VisualBasic
     [System.Windows.Forms.Application]::EnableVisualStyles()
@@ -1985,7 +2212,7 @@ function Show-ChannelPicker {
     # shared state (a hashtable, so the button handlers can change it)
     $st = @{ Prefs = @{ Tuner = ''; Port = 1234; TourSeconds = 8; Bounds = ''; OnTop = 'yes'; KnownIps = @() }; Saved = $true; Updating = $false; LoadBlades = @{}; EpgHost = ''; EpgJobs = $null; EpgOvJob = $null; EpgNext = [datetime]::MaxValue; EpgStarted = [datetime]::MinValue; Self = $PSCommandPath; FixProc = $null }
     try { if (Test-Path $PickerPrefsFile) { $j = Get-Content $PickerPrefsFile -Raw | ConvertFrom-Json
-          foreach ($k in 'Tuner', 'Port', 'TourSeconds', 'Bounds', 'OnTop', 'KnownIps') { if ($j.$k) { $st.Prefs[$k] = $j.$k } } } } catch {}
+          foreach ($k in 'Tuner', 'Port', 'TourSeconds', 'Bounds', 'OnTop', 'KnownIps', 'AepOnly') { if ($j.$k) { $st.Prefs[$k] = $j.$k } } } } catch {}
     $st.PcIp = Get-PickerPcIp
     $script:PickerMyIps = @(@(Get-PickerAllIps) + @($st.Prefs.KnownIps) | Where-Object { $_ } | Select-Object -Unique)
     $st.Prefs.KnownIps = @($script:PickerMyIps | Select-Object -First 10)
@@ -2066,8 +2293,8 @@ function Show-ChannelPicker {
     $bottom.Dock = 'Bottom'; $bottom.AutoSize = $true; $bottom.AutoSizeMode = 'GrowAndShrink'; $bottom.Padding = (New-Object System.Windows.Forms.Padding(6,6,6,0))
     $mkBtn = { param($t) $b = New-Object System.Windows.Forms.Button; $b.Text = $t; $b.AutoSize = $true; $bottom.Controls.Add($b); $b }
     $btnUp = & $mkBtn 'Up'; $btnDown = & $mkBtn 'Down'
-    $btnGood = & $mkBtn 'Good G'; $btnGood.BackColor = [System.Drawing.Color]::FromArgb(220, 245, 220)
-    $btnBad  = & $mkBtn 'Problem P'; $btnBad.BackColor = [System.Drawing.Color]::FromArgb(250, 220, 220)
+    $btnGood = & $mkBtn 'Good G'; $btnGood.BackColor = [System.Drawing.Color]::FromArgb(205, 236, 205)
+    $btnBad  = & $mkBtn 'Problem P'; $btnBad.BackColor = [System.Drawing.Color]::FromArgb(246, 201, 201)
     $btnNote = & $mkBtn 'Note N'
     $chkTour = New-Object System.Windows.Forms.CheckBox; $chkTour.Text = 'Tour every'; $chkTour.AutoSize = $true; $chkTour.Margin = (New-Object System.Windows.Forms.Padding(12,8,0,0))
     $bottom.Controls.Add($chkTour)
@@ -2085,7 +2312,98 @@ function Show-ChannelPicker {
     $stLive.Font = New-Object System.Drawing.Font('Segoe UI', 10, [System.Drawing.FontStyle]::Bold)
     [void]$status.Items.Add($stLive)
 
-    $f.Controls.Add($lv); $f.Controls.Add($top); $f.Controls.Add($bottom); $f.Controls.Add($status)
+    # ---------- AEP buttons (a small row under the others, only when the AEP remote is on) ----------
+    $st.AepQ = New-Object System.Collections.Queue
+    $st.AepTuneTo = ''; $st.AepTuneAt = [datetime]::MaxValue; $st.AepNextAt = [datetime]::MinValue
+    # Up/Down in Channel Check also tune the AEP to the same channel (typed as its number, so the two always match).
+    # Waits a moment after the last click, so clicking through several channels only sends the last one.
+    $aepFollow = { if ("$AepRemote" -ne 'on') { return }
+        $i = & $current; if ($i -lt 0) { return }
+        # channel number only: "12-0" -> 12 (the -0 is the sub-channel, not typed on the AEP)
+        $n = ("$($st.Channels[$i].Virt)" -split '-')[0] -replace '\D', ''; if (-not $n) { return }
+        $st.AepTuneTo = $n; $st.AepTuneAt = (Get-Date).AddMilliseconds(800) }
+    $aepTimer = New-Object System.Windows.Forms.Timer; $aepTimer.Interval = 300
+    $aepTimer.Add_Tick({
+        if (-not $st.AepQ.Count -and $st.AepTuneTo -and (Get-Date) -ge $st.AepTuneAt) {
+            foreach ($ch in $st.AepTuneTo.ToCharArray()) { $st.AepQ.Enqueue("$ch") }
+            $st.AepTuneTo = ''; $st.AepTuneAt = [datetime]::MaxValue
+        }
+        if (-not $st.AepQ.Count -or (Get-Date) -lt $st.AepNextAt) { return }
+        $k = "$($st.AepQ.Dequeue())"
+        # 'slow:' keys (the Admin menu code) leave a longer gap before the next key
+        if ($k -like 'slow:*') { $k = $k.Substring(5); $st.AepNextAt = (Get-Date).AddMilliseconds(800) }
+        if (-not $AepCodes.Contains($k)) { $st.AepQ.Clear(); $stLeft.Text = "$($BoxLabel): this box has no '$k' button"; $stLeft.ForeColor = [System.Drawing.Color]::DarkRed; return }
+        $r = Send-AepKey $AepCodes[$k]
+        if ($r -eq 'OK') { $stLeft.Text = "$($BoxLabel): $k"; $stLeft.ForeColor = [System.Drawing.Color]::DarkGreen }
+        else { $st.AepQ.Clear(); $stLeft.Text = "$($BoxLabel): $r"; $stLeft.ForeColor = [System.Drawing.Color]::DarkRed }
+    })
+    $bottomWrap = $null
+    if ("$AepRemote" -eq 'on') {
+        # the Channel Check buttons wrap onto more rows when the window is narrow; the AEP pad stays on the right
+        $f.MinimumSize = New-Object System.Drawing.Size(500, 420)
+        # AEP remote pad on the right of the bottom area ("DIRECTV blue"), laid out like the iRCommand2 remote:
+        #   Guide  Up     Info   CH+
+        #   Left   OK     Right  AEP
+        #   Home   Down   Back   CH-
+        #          Admin                (Admin menu: Admin 7 5 3 0 9; Home sends the AEP's menu/home code)
+        # (arrow symbols drawn from char codes so this file stays plain text)
+        $rgb = { param($h) [System.Drawing.ColorTranslator]::FromHtml($h) }
+        $aepPad = New-Object System.Windows.Forms.Panel; $aepPad.Dock = 'Right'; $aepPad.Width = 222; $aepPad.BackColor = & $rgb '#0b2e59'
+        $padBtn = { param($key, $text, $col, $row, $back, $fore, $w = 48, $bold = $false)
+            $b = New-Object System.Windows.Forms.Button; $b.Text = $text; $b.Tag = $key
+            $b.Width = $w; $b.Height = 34; $b.Left = 4 + $col * 51; $b.Top = 4 + $row * 37
+            $b.FlatStyle = 'Flat'; $b.FlatAppearance.BorderColor = & $rgb '#0a2548'; $b.BackColor = & $rgb $back; $b.ForeColor = & $rgb $fore
+            $b.Font = New-Object System.Drawing.Font('Segoe UI', 9, $(if ($bold) { [System.Drawing.FontStyle]::Bold } else { [System.Drawing.FontStyle]::Regular }))
+            $b.Add_Click({ if ($this.Tag -eq 'AdminMenu') { foreach ($k in 'Admin', '7', '5', '3', '0', '9') { $st.AepQ.Enqueue("slow:$k") } } else { $st.AepQ.Enqueue("$($this.Tag)") } })
+            $aepPad.Controls.Add($b); $b }
+        $kB = '#1f5fa8'; $mB = '#173f73'; $mF = '#cfe3ff'
+        $null = & $padBtn 'Guide' 'Guide' 0 0 $mB $mF; $null = & $padBtn 'Up' ([string][char]0x25B2) 1 0 $kB '#ffffff'; $null = & $padBtn 'Info' 'Info' 2 0 $mB $mF
+        $null = & $padBtn 'Left' ([string][char]0x25C0) 0 1 $kB '#ffffff'; $null = & $padBtn 'OK' 'OK' 1 1 '#4fa3ff' '#ffffff' 48 $true; $null = & $padBtn 'Right' ([string][char]0x25B6) 2 1 $kB '#ffffff'
+        $null = & $padBtn 'Menu' 'Home' 0 2 $mB $mF; $null = & $padBtn 'Down' ([string][char]0x25BC) 1 2 $kB '#ffffff'; $null = & $padBtn 'Exit' 'Back' 2 2 $mB $mF
+        $null = & $padBtn 'CH+' 'CH +' 3 0 '#2a7de1' '#ffffff' 60; $null = & $padBtn 'CH-' 'CH -' 3 2 '#2a7de1' '#ffffff' 60
+        $padLbl = New-Object System.Windows.Forms.Label; $padLbl.Text = $BoxLabel; $padLbl.AutoEllipsis = $true; $padLbl.Left = 4 + 3 * 51; $padLbl.Top = 4 + 37; $padLbl.Width = 60; $padLbl.Height = 34; $padLbl.TextAlign = 'MiddleCenter'
+        $padLbl.Font = New-Object System.Drawing.Font('Segoe UI', $(if ($BoxLabel.Length -gt 5) { 8 } else { 10 }), [System.Drawing.FontStyle]::Bold); $padLbl.ForeColor = & $rgb '#9cc8ff'
+        $aepPad.Controls.Add($padLbl)
+        # Admin menu, under Down: the AEP's admin code is Admin, 7, 5, 3, 0, 9 - one click sends the whole sequence
+        # boxes with a power button (DCI401, White box) get Power here instead of the AEP admin menu
+        $hasPower = ("$BoxType" -in 'dci', 'white')
+        $admB = if ($hasPower) { & $padBtn 'Power' 'Power' 1 3 '#d93a3a' '#ffffff' 98 $true } else { & $padBtn 'AdminMenu' 'Admin menu' 1 3 '#ff9f1a' '#000000' 98 $true }
+        $admB.Left = 4 + 51 + 24 - 49; $admB.Padding = New-Object System.Windows.Forms.Padding(0)     # wide enough for the text, centered under Down
+        (New-Object System.Windows.Forms.ToolTip).SetToolTip($admB, $(if ($hasPower) { "Turns the $BoxLabel on or off" } else { 'Opens the AEP admin menu (sends Admin 7 5 3 0 9)' }))
+        # the Channel Check buttons fill the rest of the bottom area, on the left
+        $bottomWrap = New-Object System.Windows.Forms.Panel; $bottomWrap.Dock = 'Bottom'; $bottomWrap.Height = 156
+        $bottom.Dock = 'Fill'; $bottom.AutoSize = $false
+        # "DIRECTV blue" touches on the left side too
+        $bottom.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#eef3f9')
+        foreach ($bb in @($btnUp, $btnDown)) { $bb.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#d6e6fa'); $bb.ForeColor = [System.Drawing.ColorTranslator]::FromHtml('#0b2e59') }
+        foreach ($bb in @($btnNote, $btnSave, $btnClear)) { $bb.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#e9eef5') }
+        $bottomWrap.Controls.Add($bottom); $bottomWrap.Controls.Add($aepPad)
+        # grow the bottom area when the left buttons need more rows (narrow window), never shorter than the pad
+        $fitBottom = { try { $need = $bottom.GetPreferredSize((New-Object System.Drawing.Size([Math]::Max(100, $bottom.Width), 0))).Height + 4
+                             $h = [Math]::Max(154, $need); if ($bottomWrap.Height -ne $h) { $bottomWrap.Height = $h } } catch {} }
+        $bottom.Add_Resize({ & $fitBottom })
+        $f.Add_Shown({ & $fitBottom })
+        # AEP only: picking a channel just tunes the AEP (watch it through the capture card) - the COM3000's spare tuner is left alone
+        $chkAepOnly = New-Object System.Windows.Forms.CheckBox; $chkAepOnly.Text = "$BoxLabel only (don't tune the COM3000)"; $chkAepOnly.AutoSize = $true
+        $chkAepOnly.Margin = (New-Object System.Windows.Forms.Padding(12,8,0,0)); $chkAepOnly.Checked = ("$($st.Prefs.AepOnly)" -eq 'yes')
+        $bottom.Controls.Add($chkAepOnly)
+        $chkAepOnly.Add_CheckedChanged({
+            $st.Prefs.AepOnly = $(if ($chkAepOnly.Checked) { 'yes' } else { 'no' }); & $savePrefs
+            if ($chkAepOnly.Checked) {
+                # give the spare tuner back if we were using it
+                if ($st.TunedAt -and $st.Prefs.Tuner) { try { [void](Invoke-PickerRelease $st.Prefs.Tuner) } catch {}; $st.TunedAt = $null }
+                & $playSource $captureSrc
+                & $setStatus "$BoxLabel only: picking a channel tunes just the $BoxLabel. VLC shows the capture card."
+                & $aepFollow
+            } else { & $setStatus "Back to tuning the COM3000 spare tuner (and the $BoxLabel on Up/Down)."; $tuneTimer.Stop(); $tuneTimer.Start() }
+        })
+        $aepTimer.Start()
+        if ("$IrSender" -ne 'itach' -and -not (Test-Elevated)) { $stLeft.Text = "$BoxLabel buttons need admin rights - close Channel Check and open it again, and say Yes"; $stLeft.ForeColor = [System.Drawing.Color]::DarkRed }
+    }
+
+    $f.Controls.Add($lv); $f.Controls.Add($top)
+    if ($bottomWrap) { $f.Controls.Add($bottomWrap) } else { $f.Controls.Add($bottom) }
+    $f.Controls.Add($status)
 
     # ---------- helpers ----------
     $fillRow = {
@@ -2141,7 +2459,7 @@ function Show-ChannelPicker {
     $playSource = {
         param([string]$src)
         if ($st.VlcSrc -eq $src) { return }
-        try { Set-PickerVlcSource $src; $st.VlcSrc = $src }
+        try { if ($src -like 'dshow:*') { throw 'capture card: restart VLC' }; Set-PickerVlcSource $src; $st.VlcSrc = $src }
         catch {
             # VLC's remote isn't answering (e.g. VLC was opened another way) - restart VLC on the new source
             $v = Find-Vlc; if (-not $v) { return }
@@ -2151,6 +2469,7 @@ function Show-ChannelPicker {
         }
     }
     $tunerSrc = { "udp://@:$($st.Prefs.Port)" }
+    $captureSrc = 'dshow://'
 
     # ---------- tuning (waits a moment so scrolling quickly doesn't retune every row) ----------
     $tuneTimer = New-Object System.Windows.Forms.Timer; $tuneTimer.Interval = 600
@@ -2158,6 +2477,12 @@ function Show-ChannelPicker {
         $tuneTimer.Stop()
         $i = & $current; if ($i -lt 0) { return }
         $c = $st.Channels[$i]
+        if ("$AepRemote" -eq 'on' -and "$($st.Prefs.AepOnly)" -eq 'yes') {
+            & $playSource $captureSrc         # VLC on the capture card (the AEP's picture)
+            & $aepFollow
+            & $setStatus "$BoxLabel to $($c.Virt)  $($c.Name)$(if ($c.Guide -eq 'X') { "  -  EPG MISMATCH: $($c.GuideWhy)" })" ($c.Guide -eq 'X')
+            return
+        }
         if ($c.Internal -and $c.Url) {
             & $playSource $c.Url
             & $setStatus "Now on $($c.Virt)  $($c.Name) - straight from its stream ($($c.Url))"
@@ -2225,8 +2550,8 @@ function Show-ChannelPicker {
 
     # ---------- events ----------
     $chkTop.Add_CheckedChanged({ $f.TopMost = $chkTop.Checked; $st.Prefs.OnTop = $(if ($chkTop.Checked) { 'yes' } else { 'no' }); & $savePrefs; $lv.Focus() })
-    $btnUp.Add_Click({ $n = & $nextIndex (& $current) -1 $false; if ($n -ge 0) { & $select $n }; $lv.Focus() })
-    $btnDown.Add_Click({ $n = & $nextIndex (& $current) 1 $false; if ($n -ge 0) { & $select $n }; $lv.Focus() })
+    $btnUp.Add_Click({ $n = & $nextIndex (& $current) -1 $false; if ($n -ge 0) { & $select $n; & $aepFollow }; $lv.Focus() })
+    $btnDown.Add_Click({ $n = & $nextIndex (& $current) 1 $false; if ($n -ge 0) { & $select $n; & $aepFollow }; $lv.Focus() })
     $btnGood.Add_Click({ & $mark 'Good'; $lv.Focus() })
     $btnBad.Add_Click({ & $mark 'Problem'; $lv.Focus() })
     $btnNote.Add_Click({ & $note; $lv.Focus() })
@@ -2434,6 +2759,7 @@ function Show-ChannelPicker {
     $lv.Add_SelectedIndexChanged({ if ($lv.SelectedIndices.Count) { $c = $st.Channels[$lv.SelectedIndices[0]]; $stLive.Text = "LIVE $($c.Virt) $($c.Name): updating..."; $stLive.ForeColor = [System.Drawing.Color]::Gray; $st.LiveNext = (Get-Date).AddSeconds(1) } })
 
     $f.Add_FormClosing({
+        try { $aepTimer.Stop() } catch {}
         $tourTimer.Stop(); $tuneTimer.Stop(); $liveTimer.Stop(); $loadTimer.Stop(); $epgTimer.Stop(); foreach ($j in @(@($st.EpgJobs.Values) + @($st.EpgOvJob))) { if ($j) { try { Stop-PickerFetch $j } catch {} } }
         if ($st.Live) { Stop-PickerFetch $st.Live; $st.Live = $null }
         foreach ($j in @($st.LoadOv, $st.LoadEpg, $st.LoadQam)) { if ($j -and -not $j.Handle.IsCompleted) { Stop-PickerFetch $j } }
@@ -2525,7 +2851,9 @@ function Show-ChannelPicker {
         $st.EpgHost = $epgHost
         $loadTimer.Start()
         # start VLC now so it's ready by the time the list appears
-        if (-not (Get-Process vlc -ErrorAction SilentlyContinue)) { $v = Find-Vlc; if ($v) { Start-PickerVlc $v ([int]$st.Prefs.Port); $st.VlcSrc = & $tunerSrc } }
+        # (AEP only: straight to the capture card instead of the spare tuner's stream)
+        $first = if ("$AepRemote" -eq 'on' -and "$($st.Prefs.AepOnly)" -eq 'yes') { $captureSrc } else { & $tunerSrc }
+        if (-not (Get-Process vlc -ErrorAction SilentlyContinue)) { $v = Find-Vlc; if ($v) { Start-PickerVlc $v ([int]$st.Prefs.Port) $first; $st.VlcSrc = $first } }
     })
 
     & $savePrefs
@@ -2661,7 +2989,7 @@ function Send-StatusReport($State, [hashtable]$Info) {
         cards = @($Info.Cards); outN = $out.Count; lowN = [int]$Info.Low; out = @($out | Select-Object -First 25)
         watched = $Info.Watched; backup = $State.lastBackup; ver = $ScriptVersion
         # (a card offline makes its EPG lines look wrong - don't show the EPG count until it's back)
-        epgBad = $(if ("$($Info.Page)" -ne 'ok' -or @($Info.Cards | Where-Object { -not $_.up }).Count) { 0 } else { [int]$State.epgBad }); epgBadList = "$($State.epgBadList)"
+        epgBad = $(if ("$($Info.Page)" -ne 'ok' -or @($Info.Cards | Where-Object { -not $_.up }).Count) { 0 } else { [int]$State.epgBad }); epgBadList = "$($State.epgBadList)"; sw = "$($State.cardSw)"; upt = "$($State.cardUp)"
         epgRef = $(if ("$EpgRefreshTime" -match '^\d\d:\d\d$' -and $State.epgRefAt) { [ordered]@{ at = $State.epgRefAt; ok = ($State.epgRefOk -eq 'ok') } } else { $null })
         resets = $sum.Months; recent = $sum.Recent; slotResets = $sum.BySlot; slotMonths = $sum.BySlotMonth; allRes = $sum.All
         alerts = $recentAlerts
@@ -3116,6 +3444,13 @@ if ($Setup) {
         "`$IntervalMinutes    = $interval        # check every this many minutes"
         "`$MinutesBeforeAlert = $delay        # something must be down this long before an alert"
         "`$MinChannelsOut     = $(if ($MinChannelsOut -ge 1) { [int]$MinChannelsOut } else { 5 })        # fewer channels than this out at once: no phone alert ..."
+        "`$AepRemote          = $(& $q $(if ($null -ne $aepAns) { $aepAns } elseif ("$AepRemote" -eq 'on') { 'on' } else { 'off' }))        # 'on' = AEP remote in Channel Check, through the USB IR unit (close iRCommand2 while using it)"
+        "`$AepJack            = $(& $q $(if ($null -ne $aepJackAns) { $aepJackAns } elseif ("$AepJack" -in '1', '2') { "$AepJack" } else { 'both' }))        # IR emitter jack on the USB IR unit: 'both', '1' or '2'"
+        "`$BoxType            = $(& $q $(if ("$BoxType" -in 'aep1', 'aep2', 'white', 'dci') { "$BoxType" } else { 'aep2' }))        # box the AEP remote controls: 'aep2', 'aep1', 'white' or 'dci'"
+        "`$IrSender           = $(& $q $(if ("$IrSender" -eq 'itach') { 'itach' } else { 'usb' }))        # what sends the IR: 'usb' (USB IR unit) or 'itach'"
+        "`$ItachIp            = $(& $q "$ItachIp")        # iTach address, e.g. '192.168.3.103' (only for 'itach')"
+        "`$ItachPort          = $(& $q $(if ("$ItachPort" -in '1', '2', '3') { "$ItachPort" } else { '1' }))        # iTach IR jack the box's emitter is on: 1, 2 or 3"
+        "`$CaptureDevice      = $(& $q "$CaptureDevice")        # USB capture card VLC opens in 'AEP only' mode, e.g. 'USB Video' (blank = the default one)"
         "`$PickerRefreshSeconds = $(if ([int]$PickerRefreshSeconds -ge 5) { [int]$PickerRefreshSeconds } else { 30 })        # Channel Check: re-read the bitrates every this many seconds (lower = livelier but slower to use)"
         "`$FewChannelsMinutes = $(if ($null -ne $FewChannelsMinutes) { [int]$FewChannelsMinutes } else { 300 })        # ... unless one stays out this many minutes (0 = never)"
         "`$RainFadeHours      = $(if ($null -ne $RainFadeHours) { [int]$RainFadeHours } else { 3 })        # rain fade (3+ cards dropping): no alerts unless it lasts this many hours (0 = never)"
@@ -3364,6 +3699,25 @@ if ($Setup) {
     $xa = Ask '19. Other IPs to open with the COM3000 blades, e.g. a streamer (like 192.168.3.200, comma-separated), or none' $(if ("$ExtraTabs".Trim()) { $ExtraTabs } else { 'none' })
     $xtAns = (@($xa -split '[,\s]+' | Where-Object { $_ -match '^\d+\.\d+\.\d+\.\d+(:\d+)?$' }) -join ',')
 
+    # 20. AEP remote through the USB IR unit
+    $aa = Ask '20. Control a DIRECTV AEP box from Channel Check through the USB IR unit (the one iRCommand2 uses)? yes or no' $(if ("$AepRemote" -eq 'on') { 'yes' } else { 'no' })
+    $aepAns = if ($aa -match '^\s*(y|yes|on)\s*$') { 'on' } else { 'off' }
+    $aepJackAns = $null
+    if ($aepAns -eq 'on') {
+        $ja = Ask '    Which emitter jack on the IR unit is the AEP on? both, 1 or 2' $(if ("$AepJack" -in '1', '2') { "$AepJack" } else { 'both' })
+        $aepJackAns = if ($ja -match '^\s*1\s*$') { '1' } elseif ($ja -match '^\s*2\s*$') { '2' } else { 'both' }
+        $ba = Ask '    Which box is it? aep2, aep1, white (White cable box) or dci (DCI401)' $(if ("$BoxType" -in 'aep1', 'white', 'dci') { "$BoxType" } else { 'aep2' })
+        $BoxType = if ($ba -match 'w') { 'white' } elseif ($ba -match 'dci|401') { 'dci' } elseif ($ba -match '1') { 'aep1' } else { 'aep2' }
+        $sa = Ask '    What sends the IR? usb (USB IR unit) or itach' $(if ("$IrSender" -eq 'itach') { 'itach' } else { 'usb' })
+        $IrSender = if ($sa -match 'i') { 'itach' } else { 'usb' }
+        if ($IrSender -eq 'itach') {
+            $ItachIp = (Ask '    iTach IP address' "$ItachIp").Trim()
+            $pa = Ask '    Which iTach IR jack is the emitter on? 1, 2 or 3' $(if ("$ItachPort" -in '1', '2', '3') { "$ItachPort" } else { '1' })
+            $ItachPort = if ($pa -match '[123]') { $Matches[0] } else { '1' }
+        }
+        $AepRemote = 'on'
+    }
+
     & $writeSettings
     $IgnoreChannels = $ignList
     $watching = if ($scan) { @($scan.Channels | Where-Object { -not (Test-Ignored $_) }).Count } else { '?' }
@@ -3440,6 +3794,11 @@ if ($Install) {
     Write-Host "Installed. The monitor checks every $IntervalMinutes minutes, even when no one is logged in." -ForegroundColor Green
     Write-Host "Log file: $LogFile"
     try { New-DesktopShortcuts } catch { Write-Host "(Couldn't create desktop shortcuts: $($_.Exception.Message))" -ForegroundColor Yellow }
+    if ("$AepRemote" -eq 'on' -and "$IrSender" -ne 'itach') {
+        $u = try { (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).UserName } catch { "$env:USERDOMAIN\$env:USERNAME" }
+        if (Register-AepPickerTask $u) { Write-Host "AEP remote on: Channel Check opens with admin rights for $u (needed for the USB IR unit)." -ForegroundColor Green }
+        else { Write-Host '(AEP remote: could not set up the no-prompt admin start - Channel Check will ask for admin each time.)' -ForegroundColor Yellow }
+    }
     if ($BackupTime -ne 'off') {
         try { New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null } catch {}
         try {
@@ -3611,6 +3970,17 @@ if ($ReportNow) {
         Write-Host "Could not update the dashboard: $(Get-CleanError $_)" -ForegroundColor Red
     }
     return
+}
+
+# ---- AEP remote turned on in Settings: set up the no-prompt admin start of Channel Check for whoever is logged on ----
+if ("$AepRemote" -eq 'on' -and "$IrSender" -ne 'itach' -and ([Security.Principal.WindowsIdentity]::GetCurrent()).IsSystem) {
+    try {
+        $null = & schtasks.exe /Query /TN $AepTaskName 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $u = (Get-CimInstance Win32_ComputerSystem -ErrorAction Stop).UserName
+            if ($u -and (Register-AepPickerTask $u)) { Write-Log "AEP remote: Channel Check will open with admin rights for $u" }
+        }
+    } catch {}
 }
 
 # ---- Internet self-repair: when this PC can't reach the internet, try to get it back ----
@@ -4395,6 +4765,22 @@ try {
                     if ($bad.Count) { Write-Log "EPG check: $($bad.Count) channel(s) wrong in the EPG: $($state.epgBadList)" }
                 }
             } catch { Write-Log "EPG check skipped: $(Get-CleanError $_)" }
+        }
+    }
+    # ---- card software versions (and uptimes) from the COM3000's Info page, every hour, for the dashboard ----
+    if (-not $Test) {
+        $lastSw = [datetime]::MinValue; [void][datetime]::TryParse("$($state.swCheckAt)", $Inv, [Globalization.DateTimeStyles]::RoundtripKind, [ref]$lastSw)
+        if (((Get-Date) - $lastSw).TotalMinutes -ge 60) {
+            Set-Step 'reading card software versions'
+            $state.swCheckAt = (Get-Date).ToString('o')
+            try {
+                $infoHtml = Get-PageHtml "http://$(Get-ComIp)/cgi-bin/webcmd?screen=info"
+                $sw = Get-CardSoftware $infoHtml
+                if ($sw.Count) {
+                    $state.cardSw = (@($sw | ForEach-Object { "$($_.Slot)=$($_.Sw)" }) -join '|')
+                    $state.cardUp = (@($sw | ForEach-Object { "$($_.Slot)=$($_.Up)" }) -join '|')
+                }
+            } catch { Write-Log "Card software check skipped: $(Get-CleanError $_)" }
         }
     }
     Send-StatusReport $state @{ Page = 'ok'; Via = $script:ComHostNow; Paused = ''; Err = ''; Cards = $dashCards; Out = @($dashOut); Low = $script:DashLow; Watched = $seen.Count }
