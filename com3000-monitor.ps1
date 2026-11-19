@@ -154,6 +154,8 @@ $ItachPort       = '1'          # iTach IR jack the box's emitter is on: 1, 2 or
 $CaptureDevice   = ''
 # capture size asked of the card, e.g. '1920x1080' or '1280x720' ('' = let the card pick, often a small blurry size)
 $CaptureSize     = ''
+# capture card's sound, as VLC's "Audio device name" list shows it ('' = find the capture card's own audio by itself)
+$CaptureAudio    = ''
 
 # DAILY EPG REFRESH: every morning re-submit each blade's EPG page exactly as it is (same list,
 # same checkboxes) - like pressing Submit - so AEP boxes reload the guide. 24-hour HH:mm or 'off'.
@@ -201,6 +203,12 @@ try {
 try {
     if ((Test-Path $SettingsFile) -and -not ((Get-Content $SettingsFile -Raw) -match '(?m)^\$AepRemote\s*=')) {
         $t = (Get-Content $SettingsFile -Raw).TrimEnd() + "`r`n`$AepRemote          = 'off'        # 'on' = AEP remote in Channel Check, through the USB IR unit (close iRCommand2 while using it)" + "`r`n`$AepJack            = 'both'        # IR emitter jack on the USB IR unit: 'both', '1' or '2'"
+        Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
+    }
+} catch {}
+try {
+    if ((Test-Path $SettingsFile) -and -not ((Get-Content $SettingsFile -Raw) -match '(?m)^\$CaptureAudio\s*=')) {
+        $t = (Get-Content $SettingsFile -Raw).TrimEnd() + "`r`n`$CaptureAudio       = ''        # capture card's sound as VLC lists it ('' = found by itself)"
         Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
     }
 } catch {}
@@ -266,7 +274,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-18l'
+$ScriptVersion = '2026-11-18o'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -1957,6 +1965,18 @@ function Get-CaptureDevices {
     }
     @($out | Select-Object -Unique)
 }
+# audio capture devices (DirectShow); the capture card's own sound is picked by name, never a microphone or the PC's line in
+function Get-CaptureAudio {
+    if ("$CaptureAudio".Trim()) { return "$CaptureAudio".Trim() }
+    $out = @()
+    foreach ($root in 'Registry::HKEY_CLASSES_ROOT\CLSID\{33D9A762-90C8-11d0-BD43-00A0C911CE86}\Instance', 'Registry::HKEY_CLASSES_ROOT\WOW6432Node\CLSID\{33D9A762-90C8-11d0-BD43-00A0C911CE86}\Instance') {
+        try { foreach ($k in @(Get-ChildItem $root -ErrorAction Stop)) { $n = (Get-ItemProperty $k.PSPath -ErrorAction SilentlyContinue).FriendlyName; if ($n) { $out += "$n" } } } catch {}
+    }
+    $out = @($out | Select-Object -Unique | Where-Object { $_ -notmatch 'OBS|virtual|Stereo Mix|Wave Out|CABLE|VoiceMeeter' })
+    $pick = @($out | Where-Object { $_ -match 'USB2|Digital Audio Interface|USB Digital Audio|HDMI|capture|Cam Link|Elgato|AVerMedia|Magewell|Hauppauge|MS2109|MS2130|UVC' } | Select-Object -First 1)
+    if ($pick) { return $pick[0] }
+    return ''
+}
 function Get-CaptureDevice {
     if ("$CaptureDevice".Trim()) { return "$CaptureDevice".Trim() }
     $real = @(Get-CaptureDevices | Where-Object { $_ -notmatch 'OBS|virtual|XSplit|ManyCam|Snap Camera|NVIDIA Broadcast|Streamlabs|vMix|Screen Capture' })
@@ -1977,6 +1997,8 @@ function Start-PickerVlc([string]$Vlc, [int]$Port, [string]$Source = '') {
         $Source = 'dshow://'; $cap = @(':live-caching=300')
         $dev = Get-CaptureDevice
         if ($dev) { $cap += "`":dshow-vdev=$dev`"" }
+        $adev = Get-CaptureAudio
+        if ($adev) { $cap += "`":dshow-adev=$adev`"" }
         if ("$CaptureSize".Trim() -match '^\d+x\d+$') { $cap += ":dshow-size=$("$CaptureSize".Trim())"; $cap += ':dshow-aspect-ratio=16:9' }
     }
     $vlcArgs = @($Source) + $cap + @('--network-caching=2000', '--avcodec-hw=none', '--no-qt-video-autoresize',
@@ -2301,7 +2323,7 @@ function Show-ChannelPicker {
     $top.Controls.Add($txtGo)
     $btnGo = New-Object System.Windows.Forms.Button; $btnGo.Text = 'Go'; $btnGo.AutoSize = $true
     $top.Controls.Add($btnGo)
-    $top.Controls.Add((& $mkLabel '(50, 202 or ESPN + Enter)'))
+    $goHint = & $mkLabel '(50, 202 or ESPN + Enter)'; $top.Controls.Add($goHint)
 
     $lv = New-Object System.Windows.Forms.ListView
     $lv.Dock = 'Fill'; $lv.View = 'Details'; $lv.FullRowSelect = $true; $lv.MultiSelect = $false; $lv.HideSelection = $false; $lv.GridLines = $true
@@ -2321,18 +2343,17 @@ function Show-ChannelPicker {
 
     $bottom = New-Object System.Windows.Forms.FlowLayoutPanel
     $bottom.Dock = 'Bottom'; $bottom.AutoSize = $true; $bottom.AutoSizeMode = 'GrowAndShrink'; $bottom.Padding = (New-Object System.Windows.Forms.Padding(6,6,6,0))
-    $mkBtn = { param($t) $b = New-Object System.Windows.Forms.Button; $b.Text = $t; $b.AutoSize = $true; $bottom.Controls.Add($b); $b }
+    $mkBtn = { param($t) $b = New-Object System.Windows.Forms.Button; $b.Text = $t; $b.AutoSize = $true; $b.MinimumSize = New-Object System.Drawing.Size(72, 0); $bottom.Controls.Add($b); $b }
     $btnUp = & $mkBtn 'Up'; $btnDown = & $mkBtn 'Down'
     $btnGood = & $mkBtn 'Good G'; $btnGood.BackColor = [System.Drawing.Color]::FromArgb(205, 236, 205)
     $btnBad  = & $mkBtn 'Problem P'; $btnBad.BackColor = [System.Drawing.Color]::FromArgb(246, 201, 201)
     $btnNote = & $mkBtn 'Note N'
     $chkTour = New-Object System.Windows.Forms.CheckBox; $chkTour.Text = 'Tour every'; $chkTour.AutoSize = $true; $chkTour.Margin = (New-Object System.Windows.Forms.Padding(12,8,0,0))
-    $bottom.Controls.Add($chkTour)
     $numSec = New-Object System.Windows.Forms.NumericUpDown; $numSec.Minimum = 3; $numSec.Maximum = 120; $numSec.Value = [int]$st.Prefs.TourSeconds; $numSec.Width = 50
-    $bottom.Controls.Add($numSec); $bottom.Controls.Add((& $mkLabel 'sec'))
+    # (the auto tour is no longer shown on the window - taken out 2026-11-18)
     $btnSave = & $mkBtn 'Save'
     $btnClear = & $mkBtn 'Clear'
-    $btnFixEpg = & $mkBtn 'Fix EPG'; $btnFixEpg.Margin = (New-Object System.Windows.Forms.Padding(12,3,3,3))
+    $btnFixEpg = & $mkBtn 'Fix EPG'
     $btnFixEpg.BackColor = [System.Drawing.Color]::FromArgb(222, 234, 250)
 
     $status = New-Object System.Windows.Forms.StatusStrip
@@ -2401,7 +2422,7 @@ function Show-ChannelPicker {
         $admB.Left = 4 + 51 + 24 - 49; $admB.Padding = New-Object System.Windows.Forms.Padding(0)     # wide enough for the text, centered under Down
         (New-Object System.Windows.Forms.ToolTip).SetToolTip($admB, $(if ($hasPower) { "Turns the $BoxLabel on or off" } else { 'Opens the AEP admin menu (sends Admin 7 5 3 0 9)' }))
         # the Channel Check buttons fill the rest of the bottom area, on the left
-        $bottomWrap = New-Object System.Windows.Forms.Panel; $bottomWrap.Dock = 'Bottom'; $bottomWrap.Height = 156
+        $bottomWrap = New-Object System.Windows.Forms.Panel; $bottomWrap.Dock = 'Bottom'; $bottomWrap.Height = 160
         $bottom.Dock = 'Fill'; $bottom.AutoSize = $false
         # "DIRECTV blue" touches on the left side too
         $bottom.BackColor = [System.Drawing.ColorTranslator]::FromHtml('#eef3f9')
@@ -2410,15 +2431,17 @@ function Show-ChannelPicker {
         $bottomWrap.Controls.Add($bottom); $bottomWrap.Controls.Add($aepPad)
         # grow the bottom area when the left buttons need more rows (narrow window), never shorter than the pad
         $fitBottom = { try { $need = $bottom.GetPreferredSize((New-Object System.Drawing.Size([Math]::Max(100, $bottom.Width), 0))).Height + 4
-                             $h = [Math]::Max($(if ($aepPad.Visible) { 154 } else { 30 }), $need); if ($bottomWrap.Height -ne $h) { $bottomWrap.Height = $h } } catch {} }
+                             $h = [Math]::Max($(if ($st.PadOn) { 156 } else { 30 }), $need); if ($bottomWrap.Height -ne $h) { $bottomWrap.Height = $h } } catch {} }
         $bottom.Add_Resize({ & $fitBottom })
         $f.Add_Shown({ & $fitBottom })
         # AEP only: picking a channel just tunes the AEP (watch it through the capture card) - the COM3000's spare tuner is left alone
         $chkAepOnly = New-Object System.Windows.Forms.CheckBox; $chkAepOnly.Text = "$BoxLabel only (don't tune the COM3000)"; $chkAepOnly.AutoSize = $true
-        $chkAepOnly.Margin = (New-Object System.Windows.Forms.Padding(12,8,0,0)); $chkAepOnly.Checked = ("$($st.Prefs.AepOnly)" -eq 'yes')
-        $bottom.Controls.Add($chkAepOnly)
+        $chkAepOnly.Margin = (New-Object System.Windows.Forms.Padding(3,5,0,0)); $chkAepOnly.Checked = ("$($st.Prefs.AepOnly)" -eq 'yes')
+        $chkAepOnly.Font = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Bold)
+        # at the top, on its own line under "Go to"
+        $top.SetFlowBreak($goHint, $true); $top.Controls.Add($chkAepOnly)
         # the box's remote pad only shows while the box checkbox is ticked
-        $aepPad.Visible = $chkAepOnly.Checked
+        $aepPad.Visible = $chkAepOnly.Checked; $st.PadOn = $chkAepOnly.Checked
         $chkAepOnly.Add_CheckedChanged({
             $st.Prefs.AepOnly = $(if ($chkAepOnly.Checked) { 'yes' } else { 'no' }); & $savePrefs
             # the USB IR unit needs admin rights: ticked without them, restart Channel Check with them (it opens ticked)
@@ -2429,7 +2452,7 @@ function Show-ChannelPicker {
                 if ($ok) { $f.Close(); return }
                 & $setStatus "$BoxLabel needs admin rights for the IR unit - say Yes when asked"; return
             }
-            $aepPad.Visible = $chkAepOnly.Checked; & $fitBottom
+            $aepPad.Visible = $chkAepOnly.Checked; $st.PadOn = $chkAepOnly.Checked; & $fitBottom
             if ($chkAepOnly.Checked) {
                 # give the spare tuner back if we were using it
                 if ($st.TunedAt -and $st.Prefs.Tuner) { try { [void](Invoke-PickerRelease $st.Prefs.Tuner) } catch {}; $st.TunedAt = $null }
@@ -3491,6 +3514,7 @@ if ($Setup) {
         "`$IrSender           = $(& $q $(if ("$IrSender" -eq 'itach') { 'itach' } else { 'usb' }))        # what sends the IR: 'usb' (USB IR unit) or 'itach'"
         "`$ItachIp            = $(& $q "$ItachIp")        # iTach address, e.g. '192.168.3.103' (only for 'itach')"
         "`$ItachPort          = $(& $q $(if ("$ItachPort" -in '1', '2', '3') { "$ItachPort" } else { '1' }))        # iTach IR jack the box's emitter is on: 1, 2 or 3"
+        "`$CaptureAudio       = $(& $q "$CaptureAudio")        # capture card's sound as VLC lists it ('' = found by itself)"
         "`$CaptureSize        = $(& $q "$CaptureSize")        # capture card picture size, e.g. '1920x1080' or '1280x720' ('' = card's default)"
         "`$CaptureDevice      = $(& $q "$CaptureDevice")        # USB capture card VLC opens in 'AEP only' mode, e.g. 'USB Video' (blank = the default one)"
         "`$PickerRefreshSeconds = $(if ([int]$PickerRefreshSeconds -ge 5) { [int]$PickerRefreshSeconds } else { 30 })        # Channel Check: re-read the bitrates every this many seconds (lower = livelier but slower to use)"
