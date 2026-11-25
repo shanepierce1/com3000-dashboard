@@ -255,6 +255,23 @@ try {
         $script:MassChangeNote = 'One-time settings change applied: alert after 15 min, reminders every 10 min, card reset after 10 min, COM3000 reset after 10 min, box remote on'
     }
 } catch {}
+# ---- ONE-TIME CHANGE for every site (2026-11-24): automatic resets OFF (whole COM3000 and single card).
+# Two warm restarts hung a COM3000 until its power was cut (Pinnacle Springs 11/17, Stone Oak 11/24).
+# The Reset panel buttons still work by hand. Runs once per site; a later hand edit is left alone.
+try {
+    $mc2Mark = '# one-time change 2026-11-24 applied'
+    if ((Test-Path $SettingsFile) -and -not ((Get-Content $SettingsFile -Raw).Contains($mc2Mark))) {
+        $t = (Get-Content $SettingsFile -Raw).TrimEnd()
+        foreach ($n in 'SystemResetMinutes', 'CardResetMinutes') {
+            $rx = [regex]('(?m)^(\$' + $n + '\s*=\s*)(\S+)')
+            if ($rx.IsMatch($t)) { $t = $rx.Replace($t, { param($m) $m.Groups[1].Value + '0' }, 1) } else { $t += "`r`n`$$n = 0" }
+        }
+        $t += "`r`n$mc2Mark"
+        Set-Content -Path $SettingsFile -Value $t -Encoding UTF8
+        $SystemResetMinutes = 0; $CardResetMinutes = 0
+        $script:MassChangeNote = (("$($script:MassChangeNote)" + ' / ').TrimStart(' /') + 'One-time settings change applied: automatic whole COM3000 reset and card reset turned OFF').TrimStart(' /')
+    }
+} catch {}
 # ... and the "channels out at once" alert went from 3 to 5 channels.
 if ([int]$MinChannelsOut -eq 3) {
     $MinChannelsOut = 5
@@ -274,7 +291,7 @@ $LogFile   = Join-Path $ScriptDir 'monitor.log'
 $PauseFile = Join-Path $ScriptDir 'paused-until.txt'
 # Version of this file - shown in Status, the 'monitor installed' alert and on the dashboard,
 # so you can tell which locations still have an older copy.
-$ScriptVersion = '2026-11-18o'
+$ScriptVersion = '2026-11-24b'
 $BackupDir       = Join-Path $env:PUBLIC 'Desktop\COM3000 Backups'
 $DriveTaskName   = 'COM3000 Backup to Google Drive'
 $DriveStatusFile = Join-Path $ScriptDir 'drive-copy-status.txt'
@@ -4346,6 +4363,9 @@ $state.failCount = 0; $state.failAlerted = $false; $state.pdSince = ''
 if ($data.Slots.Count -gt 0 -or $data.QamIps.Count -gt 0) {
     foreach ($sl in $data.Slots) {
         if ($sl.Ip -notmatch '^\d+\.\d+\.\d+\.\d+$' -or $sl.Ip -eq '0.0.0.0') { continue }
+        # real card slots are 1 and up - a "slot 0" shows up briefly while a card is starting up; never remember it
+        # (one did at Stone Oak 2026-11-24 and set off a whole COM3000 reset because it then looked "missing")
+        if ("$($sl.Slot)" -notmatch '^[1-9]\d?$') { continue }
         $label = "Card slot $($sl.Slot)"
         # if this slot used to be at a different address, forget the old one
         foreach ($old in @($state.devices.Keys)) {
@@ -4358,6 +4378,13 @@ if ($data.Slots.Count -gt 0 -or $data.QamIps.Count -gt 0) {
 # usually can't reach - so it isn't pinged. If it fails, every channel's bitrate
 # drops to 0 and the channel alerts fire instead.
 foreach ($ip in @($state.devices.Keys)) { if ($state.devices[$ip] -eq 'QAM card') { $state.devices.Remove($ip) } }
+# forget a "slot 0" (or other non-slot) card remembered by an older version
+foreach ($ip in @($state.devices.Keys)) {
+    if ($state.devices[$ip] -match '^Card slot (\S+)$' -and $Matches[1] -notmatch '^[1-9]\d?$') {
+        Write-Log "Forgot '$($state.devices[$ip])' ($ip) - not a real card slot"
+        $state.devices.Remove($ip); Clear-Item $state "card:$ip"
+    }
+}
 Invoke-DeviceChecks $state -Defer
 
 # ---- Card status (the Status column: SWM error, tuners not registered) ----
